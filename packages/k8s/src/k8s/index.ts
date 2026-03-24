@@ -252,7 +252,90 @@ export async function execPodStep(
   const exec = new k8s.Exec(kc)
 
   command = fixArgs(command)
-  return await new Promise(function (resolve, reject) {
+
+  // Heartbeat constants matching kubectl's Go implementation
+  const PING_PERIOD_MS = parseInt(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS || '5000',
+    10
+  )
+  const PING_READ_DEADLINE_MS = parseInt(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS ||
+      String(PING_PERIOD_MS * 12 + 1000),
+    10
+  )
+
+  let pingInterval: NodeJS.Timeout | null = null
+  let pongTimeout: NodeJS.Timeout | null = null
+
+  const stopHeartbeat = (): void => {
+    if (pingInterval) {
+      clearInterval(pingInterval)
+      pingInterval = null
+    }
+    if (pongTimeout) {
+      clearTimeout(pongTimeout)
+      pongTimeout = null
+    }
+  }
+
+  const resetPongTimeout = (): void => {
+    if (pongTimeout) {
+      clearTimeout(pongTimeout)
+    }
+    pongTimeout = setTimeout(() => {
+      core.warning(
+        `[Heartbeat] No pong received in ${PING_READ_DEADLINE_MS}ms, connection may be stale`
+      )
+    }, PING_READ_DEADLINE_MS)
+  }
+
+  const startHeartbeat = (ws: any): void => {
+    core.debug(
+      `[Heartbeat] Starting with period=${PING_PERIOD_MS}ms, deadline=${PING_READ_DEADLINE_MS}ms`
+    )
+
+    // Handle pong responses
+    ws.on('pong', () => {
+      core.debug('[Heartbeat] Pong received')
+      resetPongTimeout()
+    })
+
+    // Handle errors
+    ws.on('error', (err: Error) => {
+      core.debug(`[Heartbeat] WebSocket error: ${err.message}`)
+      stopHeartbeat()
+    })
+
+    // Cleanup on close
+    ws.on('close', () => {
+      core.debug('[Heartbeat] WebSocket closed, stopping heartbeat')
+      stopHeartbeat()
+    })
+
+    // Set initial pong timeout
+    resetPongTimeout()
+
+    // Start ping loop
+    pingInterval = setInterval(() => {
+      // WebSocket readyState: 0 = CONNECTING, 1 = OPEN, 2 = CLOSING, 3 = CLOSED
+      if (ws.readyState === 1) {
+        try {
+          ws.ping()
+          core.debug('[Heartbeat] Ping sent')
+        } catch (err) {
+          core.debug(`[Heartbeat] Ping failed: ${err}`)
+          stopHeartbeat()
+        }
+      } else {
+        core.debug(
+          `[Heartbeat] WebSocket not open (readyState=${ws.readyState}), stopping`
+        )
+        stopHeartbeat()
+      }
+    }, PING_PERIOD_MS)
+  }
+
+  return await new Promise<number>(function (resolve, reject) {
     exec
       .exec(
         namespace(),
@@ -264,6 +347,7 @@ export async function execPodStep(
         stdin ?? null,
         false /* tty */,
         resp => {
+          stopHeartbeat()
           core.debug(`execPodStep response: ${JSON.stringify(resp)}`)
           if (resp.status === 'Success') {
             resolve(resp.code || 0)
@@ -278,7 +362,18 @@ export async function execPodStep(
           }
         }
       )
-      .catch(e => reject(e))
+      .then(ws => {
+        // Start heartbeat once WebSocket is connected
+        if (ws) {
+          startHeartbeat(ws)
+        } else {
+          core.warning('[Heartbeat] WebSocket is null, heartbeat not started')
+        }
+      })
+      .catch(e => {
+        stopHeartbeat()
+        reject(e)
+      })
   })
 }
 
