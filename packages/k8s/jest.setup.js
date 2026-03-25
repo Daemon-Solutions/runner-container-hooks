@@ -1,6 +1,6 @@
 // Mock execCpToPod to prevent real network/file operations in tests
-jest.mock('../src/k8s', () => {
-	const actual = jest.requireActual('../src/k8s');
+jest.mock('./src/k8s', () => {
+	const actual = jest.requireActual('./src/k8s');
 	return {
 		...actual,
 		execCpToPod: jest.fn().mockResolvedValue(undefined),
