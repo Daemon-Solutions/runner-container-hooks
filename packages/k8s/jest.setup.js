@@ -5,7 +5,7 @@ jest.setTimeout(500000)
 jest.mock('@kubernetes/client-node', () => {
 	const actual = jest.requireActual('@kubernetes/client-node');
 	class MockCoreV1Api {
-		createNamespacedPod = jest.fn().mockResolvedValue({});
+		createNamespacedPod = jest.fn().mockResolvedValue({ metadata: { name: 'mock-pod' } });
 		deleteNamespacedPod = jest.fn().mockResolvedValue({});
 		listNamespacedPod = jest.fn().mockResolvedValue({ items: [] });
 		listNamespacedSecret = jest.fn().mockResolvedValue({ items: [] });
