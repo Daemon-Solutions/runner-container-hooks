@@ -4,9 +4,9 @@ import { HookData } from 'hooklib/lib'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
-const kc = new k8s.KubeConfig();
-kc.loadFromDefault();
-const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+const kc = new k8s.KubeConfig()
+kc.loadFromDefault()
+const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
 
 export class TestHelper {
   private tempDirPath: string

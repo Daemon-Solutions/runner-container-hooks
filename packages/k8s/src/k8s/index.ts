@@ -249,9 +249,10 @@ export async function execPodStep(
   containerName: string,
   stdin?: stream.Readable
 ): Promise<number> {
-
   const exec = new k8s.Exec(kc)
-  core.info(`[execPodStep] Starting execPodStep with command: ${JSON.stringify(command)}, podName: ${podName}, containerName: ${containerName}`)
+  core.info(
+    `[execPodStep] Starting execPodStep with command: ${JSON.stringify(command)}, podName: ${podName}, containerName: ${containerName}`
+  )
 
   command = fixArgs(command)
   core.debug(`[execPodStep] Fixed command: ${JSON.stringify(command)}`)
@@ -266,7 +267,9 @@ export async function execPodStep(
       String(PING_PERIOD_MS * 12 + 1000),
     10
   )
-  core.debug(`[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`)
+  core.debug(
+    `[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`
+  )
 
   let pingInterval: NodeJS.Timeout | null = null
   let pongTimeout: NodeJS.Timeout | null = null
@@ -356,12 +359,16 @@ export async function execPodStep(
         false /* tty */,
         resp => {
           stopHeartbeat()
-          core.info(`[execPodStep] execPodStep response: ${JSON.stringify(resp)}`)
+          core.info(
+            `[execPodStep] execPodStep response: ${JSON.stringify(resp)}`
+          )
           if (resp.status === 'Success') {
             core.info(`[execPodStep] Success, code: ${resp.code}`)
             resolve(resp.code || 0)
           } else {
-            core.error(`[execPodStep] Failure: ${JSON.stringify({ message: resp?.message, details: resp?.details })}`)
+            core.error(
+              `[execPodStep] Failure: ${JSON.stringify({ message: resp?.message, details: resp?.details })}`
+            )
             reject(new Error(resp?.message || 'execPodStep failed'))
           }
         }
