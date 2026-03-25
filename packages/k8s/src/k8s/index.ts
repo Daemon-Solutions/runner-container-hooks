@@ -249,9 +249,12 @@ export async function execPodStep(
   containerName: string,
   stdin?: stream.Readable
 ): Promise<number> {
+
   const exec = new k8s.Exec(kc)
+  core.info(`[execPodStep] Starting execPodStep with command: ${JSON.stringify(command)}, podName: ${podName}, containerName: ${containerName}`)
 
   command = fixArgs(command)
+  core.debug(`[execPodStep] Fixed command: ${JSON.stringify(command)}`)
 
   // Heartbeat constants matching kubectl's Go implementation
   const PING_PERIOD_MS = parseInt(
@@ -263,11 +266,13 @@ export async function execPodStep(
       String(PING_PERIOD_MS * 12 + 1000),
     10
   )
+  core.debug(`[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`)
 
   let pingInterval: NodeJS.Timeout | null = null
   let pongTimeout: NodeJS.Timeout | null = null
 
   const stopHeartbeat = (): void => {
+    core.info('[Heartbeat] stopHeartbeat called')
     if (pingInterval) {
       clearInterval(pingInterval)
       pingInterval = null
@@ -279,6 +284,7 @@ export async function execPodStep(
   }
 
   const resetPongTimeout = (): void => {
+    core.info('[Heartbeat] resetPongTimeout called')
     if (pongTimeout) {
       clearTimeout(pongTimeout)
     }
@@ -290,25 +296,25 @@ export async function execPodStep(
   }
 
   const startHeartbeat = (ws: any): void => {
-    core.debug(
+    core.info(
       `[Heartbeat] Starting with period=${PING_PERIOD_MS}ms, deadline=${PING_READ_DEADLINE_MS}ms`
     )
 
     // Handle pong responses
     ws.on('pong', () => {
-      core.debug('[Heartbeat] Pong received')
+      core.info('[Heartbeat] Pong received')
       resetPongTimeout()
     })
 
     // Handle errors
     ws.on('error', (err: Error) => {
-      core.debug(`[Heartbeat] WebSocket error: ${err.message}`)
+      core.error(`[Heartbeat] WebSocket error: ${err.message}`)
       stopHeartbeat()
     })
 
     // Cleanup on close
     ws.on('close', () => {
-      core.debug('[Heartbeat] WebSocket closed, stopping heartbeat')
+      core.info('[Heartbeat] WebSocket closed, stopping heartbeat')
       stopHeartbeat()
     })
 
@@ -318,16 +324,17 @@ export async function execPodStep(
     // Start ping loop
     pingInterval = setInterval(() => {
       // WebSocket readyState: 0 = CONNECTING, 1 = OPEN, 2 = CLOSING, 3 = CLOSED
+      core.info(`[Heartbeat] Ping loop, ws.readyState=${ws.readyState}`)
       if (ws.readyState === 1) {
         try {
           ws.ping()
-          core.debug('[Heartbeat] Ping sent')
+          core.info('[Heartbeat] Ping sent')
         } catch (err) {
-          core.debug(`[Heartbeat] Ping failed: ${err}`)
+          core.error(`[Heartbeat] Ping failed: ${err}`)
           stopHeartbeat()
         }
       } else {
-        core.debug(
+        core.info(
           `[Heartbeat] WebSocket not open (readyState=${ws.readyState}), stopping`
         )
         stopHeartbeat()
@@ -336,6 +343,7 @@ export async function execPodStep(
   }
 
   return await new Promise<number>(function (resolve, reject) {
+    core.info('[execPodStep] About to call exec.exec')
     exec
       .exec(
         namespace(),
@@ -348,21 +356,18 @@ export async function execPodStep(
         false /* tty */,
         resp => {
           stopHeartbeat()
-          core.debug(`execPodStep response: ${JSON.stringify(resp)}`)
+          core.info(`[execPodStep] execPodStep response: ${JSON.stringify(resp)}`)
           if (resp.status === 'Success') {
+            core.info(`[execPodStep] Success, code: ${resp.code}`)
             resolve(resp.code || 0)
           } else {
-            core.debug(
-              JSON.stringify({
-                message: resp?.message,
-                details: resp?.details
-              })
-            )
+            core.error(`[execPodStep] Failure: ${JSON.stringify({ message: resp?.message, details: resp?.details })}`)
             reject(new Error(resp?.message || 'execPodStep failed'))
           }
         }
       )
       .then(ws => {
+        core.info('[execPodStep] exec.exec resolved, ws object received')
         // Start heartbeat once WebSocket is connected
         if (ws) {
           startHeartbeat(ws)
@@ -372,6 +377,7 @@ export async function execPodStep(
       })
       .catch(e => {
         stopHeartbeat()
+        core.error(`[execPodStep] exec.exec threw error: ${e}`)
         reject(e)
       })
   })
