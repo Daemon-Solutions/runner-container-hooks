@@ -4,17 +4,15 @@ import { HookData } from 'hooklib/lib'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
-kc.loadFromDefault()
-
-const kc = new k8s.KubeConfig()
-kc.loadFromDefault()
-// Allow HTTP clusters in test by setting skipTLSVerify=true
+const kc = new k8s.KubeConfig();
+kc.loadFromDefault();
+// Allow HTTP clusters in test by setting skipTLSVerify=true (bypass readonly)
 kc.clusters.forEach(cluster => {
   if (cluster.server && cluster.server.startsWith('http://')) {
-    cluster.skipTLSVerify = true
+    (cluster as any).skipTLSVerify = true;
   }
-})
-const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
+});
+const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 
 export class TestHelper {
   private tempDirPath: string
