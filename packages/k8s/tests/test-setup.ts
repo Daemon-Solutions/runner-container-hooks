@@ -6,11 +6,9 @@ import { v4 as uuidv4 } from 'uuid'
 
 const kc = new k8s.KubeConfig();
 kc.loadFromDefault();
-// Allow HTTP clusters in test by setting skipTLSVerify=true (bypass readonly)
+// Force skipTLSVerify=true for all clusters in test to avoid HTTP protocol errors
 kc.clusters.forEach(cluster => {
-  if (cluster.server && cluster.server.startsWith('http://')) {
-    (cluster as any).skipTLSVerify = true;
-  }
+  (cluster as any).skipTLSVerify = true;
 });
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 
