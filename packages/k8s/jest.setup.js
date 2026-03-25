@@ -8,7 +8,11 @@ jest.mock('@kubernetes/client-node', () => {
 		createNamespacedPod = jest.fn().mockResolvedValue({ body: {} });
 		deleteNamespacedPod = jest.fn().mockResolvedValue({ body: {} });
 		listNamespacedPod = jest.fn().mockResolvedValue({ body: { items: [] } });
-		// Add more mocked methods as needed
+		listNamespacedSecret = jest.fn().mockResolvedValue({ body: { items: [] } });
+		deleteNamespacedSecret = jest.fn().mockResolvedValue({ body: {} });
+		readNamespacedPod = jest.fn().mockResolvedValue({ body: {} });
+		patchNamespacedPod = jest.fn().mockResolvedValue({ body: {} });
+		// Add more mocked methods as needed for your tests
 	}
 	return {
 		...actual,
