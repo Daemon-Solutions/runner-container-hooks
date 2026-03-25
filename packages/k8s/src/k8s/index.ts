@@ -24,7 +24,6 @@ import {
   WORK_VOLUME
 } from './utils'
 import * as shlex from 'shlex'
-import type { Timeout } from 'node:timers'
 
 const kc = new k8s.KubeConfig()
 
@@ -272,8 +271,8 @@ export async function execPodStep(
     `[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`
   )
 
-  let pingInterval: Timeout | null = null
-  let pongTimeout: Timeout | null = null
+  let pingInterval: ReturnType<typeof setTimeout> | null = null
+  let pongTimeout: ReturnType<typeof setTimeout> | null = null
 
   const stopHeartbeat = (): void => {
     core.info('[Heartbeat] stopHeartbeat called')
