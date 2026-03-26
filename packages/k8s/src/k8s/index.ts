@@ -70,11 +70,27 @@ export async function createJobPod(
   registry?: Registry,
   extension?: k8s.V1PodTemplateSpec
 ): Promise<k8s.V1Pod> {
+  core.info(`[createJobPod] Starting pod creation: ${name}`)
+  core.info(`[createJobPod] Has jobContainer: ${!!jobContainer}`)
+  core.info(`[createJobPod] Services count: ${services?.length || 0}`)
+  core.info(`[createJobPod] Has registry: ${!!registry}`)
+  core.info(`[createJobPod] Has extension: ${!!extension}`)
+
   const containers: k8s.V1Container[] = []
   if (jobContainer) {
+    core.info(`[createJobPod] Adding job container: ${jobContainer.name}`)
+    core.info(
+      `[createJobPod] Job container volumeMounts: ${JSON.stringify(jobContainer.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
+    )
     containers.push(jobContainer)
   }
   if (services?.length) {
+    core.info(`[createJobPod] Adding ${services.length} service containers`)
+    for (const service of services) {
+      core.info(
+        `[createJobPod] Service: ${service.name}, volumeMounts: ${JSON.stringify(service.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
+      )
+    }
     containers.push(...services)
   }
 
@@ -102,6 +118,8 @@ export async function createJobPod(
   // GITHUB_WORKSPACE is like /__w/repo-name/repo-name
   const githubWorkspace = process.env.GITHUB_WORKSPACE
   const workingDirPath = githubWorkspace?.split('/').slice(-2).join('/') ?? ''
+  core.info(`[createJobPod] GITHUB_WORKSPACE: ${githubWorkspace}`)
+  core.info(`[createJobPod] Extracted workingDirPath: ${workingDirPath}`)
 
   const initCommands = [
     'mkdir -p /mnt/externals',
@@ -113,6 +131,8 @@ export async function createJobPod(
   if (workingDirPath) {
     initCommands.push(`mkdir -p /mnt/work/${workingDirPath}`)
   }
+
+  core.info(`[createJobPod] Init commands: ${initCommands.join(' && ')}`)
 
   appPod.spec.initContainers = [
     {
@@ -144,6 +164,7 @@ export async function createJobPod(
 
   appPod.spec.restartPolicy = 'Never'
 
+  core.info(`[createJobPod] Creating standard volumes`)
   appPod.spec.volumes = [
     {
       name: EXTERNALS_VOLUME_NAME,
@@ -158,8 +179,12 @@ export async function createJobPod(
       emptyDir: {}
     }
   ]
+  core.info(
+    `[createJobPod] Initial volumes: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
+  )
 
   if (registry) {
+    core.info(`[createJobPod] Creating docker registry secret`)
     const secret = await createDockerSecret(registry)
     if (!secret?.metadata?.name) {
       throw new Error(`created secret does not have secret.metadata.name`)
@@ -167,20 +192,66 @@ export async function createJobPod(
     const secretReference = new k8s.V1LocalObjectReference()
     secretReference.name = secret.metadata.name
     appPod.spec.imagePullSecrets = [secretReference]
+    core.info(`[createJobPod] Added imagePullSecret: ${secret.metadata.name}`)
   }
 
   if (extension?.metadata) {
+    core.info(`[createJobPod] Merging extension metadata`)
+    core.info(
+      `[createJobPod] Extension labels: ${JSON.stringify(extension.metadata.labels)}`
+    )
+    core.info(
+      `[createJobPod] Extension annotations: ${JSON.stringify(extension.metadata.annotations)}`
+    )
     mergeObjectMeta(appPod, extension.metadata)
   }
 
   if (extension?.spec) {
+    core.info(`[createJobPod] Merging extension spec`)
+    core.info(
+      `[createJobPod] Extension volumes: ${extension.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+    )
+    core.info(
+      `[createJobPod] Extension containers: ${extension.spec.containers?.map(c => c.name).join(', ') || 'none'}`
+    )
+    core.info(
+      `[createJobPod] Volumes BEFORE merge: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
+    )
     mergePodSpecWithOptions(appPod.spec, extension.spec)
+    core.info(
+      `[createJobPod] Volumes AFTER merge: ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+    )
+    core.info(
+      `[createJobPod] Total containers after merge: ${appPod.spec.containers.length}`
+    )
   }
 
-  return await k8sApi.createNamespacedPod({
+  core.info(`[createJobPod] Final pod configuration:`)
+  core.info(
+    `[createJobPod] - Volumes (${appPod.spec.volumes?.length || 0}): ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+  )
+  core.info(`[createJobPod] - Containers (${appPod.spec.containers.length}):`)
+  for (const container of appPod.spec.containers) {
+    core.info(`[createJobPod]   * ${container.name}:`)
+    core.info(`[createJobPod]     - Image: ${container.image}`)
+    core.info(
+      `[createJobPod]     - VolumeMounts (${container.volumeMounts?.length || 0}): ${container.volumeMounts?.map(vm => `${vm.name}@${vm.mountPath}`).join(', ') || 'none'}`
+    )
+  }
+  core.info(
+    `[createJobPod] - InitContainers (${appPod.spec.initContainers?.length || 0})`
+  )
+
+  core.info(`[createJobPod] Creating pod in namespace: ${namespace()}`)
+  const result = await k8sApi.createNamespacedPod({
     namespace: namespace(),
     body: appPod
   })
+
+  core.info(`[createJobPod] Pod created successfully: ${result.metadata?.name}`)
+  core.info(`[createJobPod] Pod UID: ${result.metadata?.uid}`)
+
+  return result
 }
 
 export async function createContainerStepPod(
