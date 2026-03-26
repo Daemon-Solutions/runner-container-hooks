@@ -600,7 +600,7 @@ export async function execCpToPod(
   }
 
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
-
+  await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
   let attempt = 0
   while (true) {
     try {
