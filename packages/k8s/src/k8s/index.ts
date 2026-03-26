@@ -491,11 +491,50 @@ export async function execCpToPod(
   runnerPath: string,
   containerPath: string
 ): Promise<void> {
+  core.info(`[execCpToPod] Starting copy operation`)
+  core.info(`[execCpToPod] Source (runnerPath): ${runnerPath}`)
+  core.info(`[execCpToPod] Destination (containerPath): ${containerPath}`)
+  core.info(`[execCpToPod] Target pod: ${podName}`)
+  core.info(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
+
+  // Check if source path exists
+  const fs = require('fs')
+  try {
+    const sourceExists = fs.existsSync(runnerPath)
+    core.info(`[execCpToPod] Source path exists: ${sourceExists}`)
+
+    if (sourceExists) {
+      const sourceStats = fs.statSync(runnerPath)
+      core.info(
+        `[execCpToPod] Source is directory: ${sourceStats.isDirectory()}`
+      )
+      core.info(`[execCpToPod] Source is file: ${sourceStats.isFile()}`)
+
+      if (sourceStats.isDirectory()) {
+        const files = fs.readdirSync(runnerPath)
+        core.info(
+          `[execCpToPod] Source directory contains ${files.length} items`
+        )
+        core.info(
+          `[execCpToPod] First few items: ${files.slice(0, 5).join(', ')}`
+        )
+      }
+    } else {
+      core.error(`[execCpToPod] Source path does not exist: ${runnerPath}`)
+      throw new Error(`Source path does not exist: ${runnerPath}`)
+    }
+  } catch (err) {
+    core.error(`[execCpToPod] Error checking source path: ${err}`)
+    throw err
+  }
+
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
 
   let attempt = 0
   while (true) {
     try {
+      core.info(`[execCpToPod] Attempt ${attempt + 1} starting...`)
+
       const exec = new k8s.Exec(kc)
       // Use tar to extract with --no-same-owner to avoid ownership issues.
       // Then use find to fix permissions. The -m flag helps but we also need to fix permissions after.
@@ -506,8 +545,15 @@ export async function execCpToPod(
           `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
       ]
+
+      core.info(`[execCpToPod] Command to execute: ${JSON.stringify(command)}`)
+      core.info(`[execCpToPod] Creating tar pack from: ${runnerPath}`)
+
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
+
+      core.info(`[execCpToPod] Executing tar extraction in pod...`)
+
       await new Promise((resolve, reject) => {
         exec
           .exec(
@@ -520,61 +566,100 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
-              if (errStream.size()) {
+              core.info(
+                `[execCpToPod] Exec completed with status: ${JSON.stringify(status)}`
+              )
+
+              const errStreamSize = errStream.size()
+              core.info(`[execCpToPod] Error stream size: ${errStreamSize}`)
+
+              if (errStreamSize) {
+                const errContent = errStream.getContentsAsString()
+                core.error(`[execCpToPod] Error stream content: ${errContent}`)
                 reject(
                   new Error(
-                    `Error from execCpToPod - status: ${status.status}, details: \n ${errStream.getContentsAsString()}`
+                    `Error from execCpToPod - status: ${status.status}, details: \n ${errContent}`
                   )
                 )
               }
+              core.info(`[execCpToPod] Exec successful, resolving...`)
               resolve(status)
             }
           )
-          .catch(e => reject(e))
+          .catch(e => {
+            core.error(`[execCpToPod] Exec threw error: ${e}`)
+            core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
+            reject(e)
+          })
       })
+
+      core.info(
+        `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
+      )
       break
     } catch (error) {
-      core.debug(`cpToPod: Attempt ${attempt + 1} failed: ${error}`)
+      core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
+      core.error(`[execCpToPod] Error type: ${typeof error}`)
+      core.error(`[execCpToPod] Error details: ${JSON.stringify(error)}`)
+
       attempt++
       if (attempt >= 30) {
+        core.error(`[execCpToPod] All 30 attempts failed, giving up`)
         throw new Error(
           `cpToPod failed after ${attempt} attempts: ${JSON.stringify(error)}`
         )
       }
+
+      core.info(`[execCpToPod] Sleeping 1 second before retry...`)
       await sleep(1000)
     }
   }
+
+  core.info(
+    `[execCpToPod] Copy operation completed, starting hash verification...`
+  )
 
   let attempts = 15
   const delay = 1000
   for (let i = 0; i < attempts; i++) {
     try {
+      core.info(`[execCpToPod] Hash verification attempt ${i + 1}/${attempts}`)
+
+      core.info(`[execCpToPod] Calculating local hash for: ${runnerPath}`)
       const want = await localCalculateOutputHashSorted([
         'sh',
         '-c',
         listDirAllCommand(runnerPath)
       ])
+      core.info(`[execCpToPod] Local hash: ${want}`)
 
+      core.info(`[execCpToPod] Calculating remote hash for: ${containerPath}`)
       const got = await execCalculateOutputHashSorted(
         podName,
         JOB_CONTAINER_NAME,
         ['sh', '-c', listDirAllCommand(containerPath)]
       )
+      core.info(`[execCpToPod] Remote hash: ${got}`)
 
       if (got !== want) {
-        core.debug(
-          `The hash of the directory does not match the expected value; want='${want}' got='${got}'`
+        core.warning(
+          `[execCpToPod] Hash mismatch on attempt ${i + 1}: want='${want}' got='${got}'`
         )
         await sleep(delay)
         continue
       }
 
+      core.info(`[execCpToPod] Hash verification successful!`)
       break
     } catch (error) {
-      core.debug(`Attempt ${i + 1} failed: ${error}`)
+      core.error(
+        `[execCpToPod] Hash verification attempt ${i + 1} failed: ${error}`
+      )
       await sleep(delay)
     }
   }
+
+  core.info(`[execCpToPod] execCpToPod completed successfully`)
 }
 
 export async function execCpFromPod(

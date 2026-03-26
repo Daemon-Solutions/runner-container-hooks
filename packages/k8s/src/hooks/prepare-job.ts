@@ -149,12 +149,49 @@ export async function prepareJob(
   core.info(`[DEBUG] Destination: /__w`)
   core.info(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
 
+  // Add sleep for debugging
+  core.info(
+    '[DEBUG] Sleeping for 300 seconds to allow manual debugging of pods...'
+  )
+  core.info(
+    `[DEBUG] Runner pod: Check logs with 'kubectl logs -n <namespace> <runner-pod-name>'`
+  )
+  core.info(`[DEBUG] Workflow pod: ${createdPod.metadata.name}`)
+  core.info(
+    `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
+  )
+  core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
+  await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
+  core.info('[DEBUG] Sleep complete, continuing with workspace copy...')
+
   try {
+    core.info(`[DEBUG] Starting execCpToPod...`)
     await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
     core.info(`[DEBUG] Workspace copy completed successfully`)
   } catch (err) {
-    core.error(`[DEBUG] Workspace copy failed: ${err}`)
-    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+    core.error(`[DEBUG] Workspace copy failed with error`)
+    core.error(`[DEBUG] Error type: ${typeof err}`)
+    core.error(`[DEBUG] Error: ${err}`)
+    core.error(`[DEBUG] Error message: ${(err as Error)?.message}`)
+    core.error(`[DEBUG] Error stack: ${(err as Error)?.stack}`)
+    core.error(`[DEBUG] Full error object: ${JSON.stringify(err, null, 2)}`)
+
+    // Don't throw immediately - try to write a response file first
+    try {
+      const errorResponse = {
+        state: {
+          error: 'workspace copy failed',
+          details: String(err)
+        },
+        context: {},
+        isAlpine: false
+      }
+      writeToResponseFile(responseFile, JSON.stringify(errorResponse))
+      core.info(`[DEBUG] Wrote error response file`)
+    } catch (writeErr) {
+      core.error(`[DEBUG] Failed to write error response: ${writeErr}`)
+    }
+
     throw err
   }
 
