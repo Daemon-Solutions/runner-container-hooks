@@ -226,19 +226,25 @@ function generateResponseFile(
 
     if (dirExists) {
       const stats = fs.statSync(responseDir)
-      core.info(`[DEBUG] Response file directory permissions: ${JSON.stringify({
-        mode: stats.mode.toString(8),
-        uid: stats.uid,
-        gid: stats.gid,
-        isDirectory: stats.isDirectory()
-      })}`)
+      core.info(
+        `[DEBUG] Response file directory permissions: ${JSON.stringify({
+          mode: stats.mode.toString(8),
+          uid: stats.uid,
+          gid: stats.gid,
+          isDirectory: stats.isDirectory()
+        })}`
+      )
     } else {
-      core.warning(`[DEBUG] Response file directory does not exist, attempting to create: ${responseDir}`)
+      core.warning(
+        `[DEBUG] Response file directory does not exist, attempting to create: ${responseDir}`
+      )
       fs.mkdirSync(responseDir, { recursive: true, mode: 0o777 })
       core.info(`[DEBUG] Created directory: ${responseDir}`)
     }
   } catch (err) {
-    core.error(`[DEBUG] Error checking/creating response file directory: ${err}`)
+    core.error(
+      `[DEBUG] Error checking/creating response file directory: ${err}`
+    )
     core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
   }
 
@@ -305,14 +311,18 @@ function generateResponseFile(
     // Verify the file was written
     if (fs.existsSync(responseFile)) {
       const fileStats = fs.statSync(responseFile)
-      core.info(`[DEBUG] Response file created successfully: ${JSON.stringify({
-        size: fileStats.size,
-        mode: fileStats.mode.toString(8),
-        uid: fileStats.uid,
-        gid: fileStats.gid
-      })}`)
+      core.info(
+        `[DEBUG] Response file created successfully: ${JSON.stringify({
+          size: fileStats.size,
+          mode: fileStats.mode.toString(8),
+          uid: fileStats.uid,
+          gid: fileStats.gid
+        })}`
+      )
     } else {
-      core.error(`[DEBUG] Response file does not exist after write: ${responseFile}`)
+      core.error(
+        `[DEBUG] Response file does not exist after write: ${responseFile}`
+      )
     }
   } catch (err) {
     core.error(`[DEBUG] Error writing response file: ${err}`)
