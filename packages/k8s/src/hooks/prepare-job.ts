@@ -140,7 +140,21 @@ export async function prepareJob(
   core.info(
     `[prepareJob] Copying workspace to pod: ${createdPod.metadata.name}`
   )
-  await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
+
+  // Add debugging before copy
+  core.info(`[DEBUG] About to copy workspace`)
+  core.info(`[DEBUG] Source: ${runnerWorkspace}`)
+  core.info(`[DEBUG] Destination: /__w`)
+  core.info(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
+
+  try {
+    await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
+    core.info(`[DEBUG] Workspace copy completed successfully`)
+  } catch (err) {
+    core.error(`[DEBUG] Workspace copy failed: ${err}`)
+    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+    throw err
+  }
 
   if (prepareScript) {
     core.info(
@@ -196,9 +210,42 @@ function generateResponseFile(
   appPod: k8s.V1Pod,
   isAlpine: boolean
 ): void {
+  // Add debugging at the start
+  core.info('[DEBUG] generateResponseFile - Starting')
+  core.info(`[DEBUG] Response file path: ${responseFile}`)
+  core.info(`[DEBUG] Response file directory: ${dirname(responseFile)}`)
+
+  // Check if directory exists
+  const fs = require('fs')
+  const path = require('path')
+  const responseDir = path.dirname(responseFile)
+
+  try {
+    const dirExists = fs.existsSync(responseDir)
+    core.info(`[DEBUG] Response file directory exists: ${dirExists}`)
+
+    if (dirExists) {
+      const stats = fs.statSync(responseDir)
+      core.info(`[DEBUG] Response file directory permissions: ${JSON.stringify({
+        mode: stats.mode.toString(8),
+        uid: stats.uid,
+        gid: stats.gid,
+        isDirectory: stats.isDirectory()
+      })}`)
+    } else {
+      core.warning(`[DEBUG] Response file directory does not exist, attempting to create: ${responseDir}`)
+      fs.mkdirSync(responseDir, { recursive: true, mode: 0o777 })
+      core.info(`[DEBUG] Created directory: ${responseDir}`)
+    }
+  } catch (err) {
+    core.error(`[DEBUG] Error checking/creating response file directory: ${err}`)
+    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+  }
+
   if (!appPod.metadata?.name) {
     throw new Error('app pod must have metadata.name specified')
   }
+
   const response = {
     state: {
       jobPod: appPod.metadata.name
@@ -248,7 +295,30 @@ function generateResponseFile(
       })
   }
 
-  writeToResponseFile(responseFile, JSON.stringify(response))
+  core.info(`[DEBUG] About to write response file`)
+  core.info(`[DEBUG] Response content: ${JSON.stringify(response, null, 2)}`)
+
+  try {
+    writeToResponseFile(responseFile, JSON.stringify(response))
+    core.info(`[DEBUG] Successfully wrote response file`)
+
+    // Verify the file was written
+    if (fs.existsSync(responseFile)) {
+      const fileStats = fs.statSync(responseFile)
+      core.info(`[DEBUG] Response file created successfully: ${JSON.stringify({
+        size: fileStats.size,
+        mode: fileStats.mode.toString(8),
+        uid: fileStats.uid,
+        gid: fileStats.gid
+      })}`)
+    } else {
+      core.error(`[DEBUG] Response file does not exist after write: ${responseFile}`)
+    }
+  } catch (err) {
+    core.error(`[DEBUG] Error writing response file: ${err}`)
+    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+    throw err
+  }
 }
 
 export function createContainerSpec(
