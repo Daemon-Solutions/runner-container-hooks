@@ -554,7 +554,18 @@ export async function execCpToPod(
 
       core.info(`[execCpToPod] Executing tar extraction in pod...`)
 
-      await new Promise((resolve, reject) => {
+      // Create a timeout promise
+      const EXEC_TIMEOUT_MS = 120000 // 2 minutes
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          core.error(`[execCpToPod] Exec timeout after ${EXEC_TIMEOUT_MS}ms`)
+          reject(new Error(`Exec timeout after ${EXEC_TIMEOUT_MS}ms`))
+        }, EXEC_TIMEOUT_MS)
+      })
+
+      const execPromise = new Promise((resolve, reject) => {
+        core.info(`[execCpToPod] About to call exec.exec()`)
+
         exec
           .exec(
             namespace(),
@@ -566,6 +577,7 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
+              core.info(`[execCpToPod] Exec callback invoked`)
               core.info(
                 `[execCpToPod] Exec completed with status: ${JSON.stringify(status)}`
               )
@@ -586,12 +598,50 @@ export async function execCpToPod(
               resolve(status)
             }
           )
+          .then(ws => {
+            core.info(`[execCpToPod] exec.exec() promise resolved`)
+            core.info(`[execCpToPod] WebSocket object type: ${typeof ws}`)
+            core.info(`[execCpToPod] WebSocket exists: ${!!ws}`)
+
+            if (ws) {
+              core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
+
+              // Add WebSocket event handlers for debugging
+              ws.on('open', () => {
+                core.info('[execCpToPod] WebSocket opened')
+              })
+
+              ws.on('close', (code: number, reason: string) => {
+                core.info(
+                  `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
+                )
+              })
+
+              ws.on('error', (err: Error) => {
+                core.error(`[execCpToPod] WebSocket error: ${err.message}`)
+                core.error(`[execCpToPod] WebSocket error stack: ${err.stack}`)
+              })
+
+              ws.on('message', (data: any) => {
+                core.info(
+                  `[execCpToPod] WebSocket message received: ${typeof data}`
+                )
+              })
+            }
+          })
           .catch(e => {
+            core.error(`[execCpToPod] exec.exec() promise rejected`)
             core.error(`[execCpToPod] Exec threw error: ${e}`)
+            core.error(`[execCpToPod] Error type: ${typeof e}`)
+            core.error(`[execCpToPod] Error message: ${e?.message}`)
+            core.error(`[execCpToPod] Error stack: ${e?.stack}`)
             core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
             reject(e)
           })
       })
+
+      // Race between exec and timeout
+      await Promise.race([execPromise, timeoutPromise])
 
       core.info(
         `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
@@ -600,6 +650,8 @@ export async function execCpToPod(
     } catch (error) {
       core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
       core.error(`[execCpToPod] Error type: ${typeof error}`)
+      core.error(`[execCpToPod] Error message: ${(error as Error)?.message}`)
+      core.error(`[execCpToPod] Error stack: ${(error as Error)?.stack}`)
       core.error(`[execCpToPod] Error details: ${JSON.stringify(error)}`)
 
       attempt++
