@@ -6,6 +6,7 @@ import tar from 'tar-fs'
 import * as stream from 'stream'
 import { WritableStreamBuffer } from 'stream-buffers'
 import { createHash } from 'crypto'
+import * as fs from 'fs'
 import type { ContainerInfo, Registry } from 'hooklib'
 import {
   getSecretName,
@@ -498,7 +499,6 @@ export async function execCpToPod(
   core.info(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
 
   // Check if source path exists
-  const fs = require('fs')
   try {
     const sourceExists = fs.existsSync(runnerPath)
     core.info(`[execCpToPod] Source path exists: ${sourceExists}`)
