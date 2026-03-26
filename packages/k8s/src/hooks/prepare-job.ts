@@ -34,6 +34,8 @@ import {
   JOB_CONTAINER_NAME
 } from './constants'
 import { dirname } from 'path'
+import * as fs from 'fs'
+import * as path from 'path'
 
 export async function prepareJob(
   args: PrepareJobArgs,
@@ -216,8 +218,6 @@ function generateResponseFile(
   core.info(`[DEBUG] Response file directory: ${dirname(responseFile)}`)
 
   // Check if directory exists
-  const fs = require('fs')
-  const path = require('path')
   const responseDir = path.dirname(responseFile)
 
   try {
