@@ -65,122 +65,120 @@ export const requiredPermissions = [
 
 export async function createJobPod(
   name: string,
-  jobContainer?: k8s.V1Container,
-  services?: k8s.V1Container[],
-  registry?: Registry,
+  container: k8s.V1Container | undefined,
+  services: k8s.V1Container[],
+  registry: Registry | undefined,
   extension?: k8s.V1PodTemplateSpec
 ): Promise<k8s.V1Pod> {
-  const containers: k8s.V1Container[] = []
-  if (jobContainer) {
-    containers.push(jobContainer)
+  core.info(`[createJobPod] Creating pod: ${name}`)
+  core.info(`[createJobPod] Container provided: ${!!container}`)
+  core.info(`[createJobPod] Services count: ${services?.length || 0}`)
+  core.info(`[createJobPod] Extension provided: ${!!extension}`)
+
+  const pod = {
+    metadata: {
+      name,
+      labels: {
+        [new RunnerInstanceLabel().key]: new RunnerInstanceLabel().value
+      }
+    },
+    spec: {
+      restartPolicy: 'Never',
+      containers: [] as k8s.V1Container[],
+      volumes: [] as k8s.V1Volume[]
+    }
+  } as k8s.V1Pod
+
+  // Add the standard volumes that should be mounted
+  core.info(`[createJobPod] Adding standard volumes`)
+
+  // Work volume
+  pod.spec.volumes.push({
+    name: WORK_VOLUME,
+    emptyDir: {}
+  })
+  core.info(`[createJobPod] Added work volume: ${WORK_VOLUME}`)
+
+  // Externals volume
+  pod.spec.volumes.push({
+    name: EXTERNALS_VOLUME_NAME,
+    emptyDir: {}
+  })
+  core.info(`[createJobPod] Added externals volume: ${EXTERNALS_VOLUME_NAME}`)
+
+  // GitHub volume
+  pod.spec.volumes.push({
+    name: GITHUB_VOLUME_NAME,
+    emptyDir: {}
+  })
+  core.info(`[createJobPod] Added github volume: ${GITHUB_VOLUME_NAME}`)
+
+  if (container) {
+    core.info(`[createJobPod] Adding main container with volumes`)
+    core.info(
+      `[createJobPod] Container volumeMounts: ${JSON.stringify(container.volumeMounts)}`
+    )
+    pod.spec.containers.push(container)
   }
+
   if (services?.length) {
-    containers.push(...services)
-  }
-
-  const appPod = new k8s.V1Pod()
-
-  appPod.apiVersion = 'v1'
-  appPod.kind = 'Pod'
-
-  appPod.metadata = new k8s.V1ObjectMeta()
-  appPod.metadata.name = name
-
-  const instanceLabel = new RunnerInstanceLabel()
-  appPod.metadata.labels = {
-    [instanceLabel.key]: instanceLabel.value
-  }
-  appPod.metadata.annotations = {}
-
-  appPod.spec = new k8s.V1PodSpec()
-  appPod.spec.containers = containers
-  appPod.spec.securityContext = {
-    fsGroup: 1001
-  }
-
-  // Extract working directory from GITHUB_WORKSPACE
-  // GITHUB_WORKSPACE is like /__w/repo-name/repo-name
-  const githubWorkspace = process.env.GITHUB_WORKSPACE
-  const workingDirPath = githubWorkspace?.split('/').slice(-2).join('/') ?? ''
-
-  const initCommands = [
-    'mkdir -p /mnt/externals',
-    'mkdir -p /mnt/work',
-    'mkdir -p /mnt/github',
-    'mv /home/runner/externals/* /mnt/externals/'
-  ]
-
-  if (workingDirPath) {
-    initCommands.push(`mkdir -p /mnt/work/${workingDirPath}`)
-  }
-
-  appPod.spec.initContainers = [
-    {
-      name: 'fs-init',
-      image:
-        process.env.ACTIONS_RUNNER_IMAGE ||
-        'ghcr.io/actions/actions-runner:latest',
-      command: ['sh', '-c', initCommands.join(' && ')],
-      securityContext: {
-        runAsGroup: 1001,
-        runAsUser: 1001
-      },
-      volumeMounts: [
-        {
-          name: EXTERNALS_VOLUME_NAME,
-          mountPath: '/mnt/externals'
-        },
-        {
-          name: WORK_VOLUME,
-          mountPath: '/mnt/work'
-        },
-        {
-          name: GITHUB_VOLUME_NAME,
-          mountPath: '/mnt/github'
-        }
-      ]
+    core.info(`[createJobPod] Adding ${services.length} service containers`)
+    for (const service of services) {
+      core.info(
+        `[createJobPod] Service container volumeMounts: ${JSON.stringify(service.volumeMounts)}`
+      )
+      pod.spec.containers.push(service)
     }
-  ]
+  }
 
-  appPod.spec.restartPolicy = 'Never'
+  core.info(
+    `[createJobPod] Total volumes in pod spec: ${pod.spec.volumes.length}`
+  )
+  core.info(
+    `[createJobPod] Volume names: ${pod.spec.volumes.map(v => v.name).join(', ')}`
+  )
 
-  appPod.spec.volumes = [
-    {
-      name: EXTERNALS_VOLUME_NAME,
-      emptyDir: {}
-    },
-    {
-      name: GITHUB_VOLUME_NAME,
-      emptyDir: {}
-    },
-    {
-      name: WORK_VOLUME,
-      emptyDir: {}
-    }
-  ]
+  if (extension?.spec) {
+    core.info(`[createJobPod] Merging with extension spec`)
+    mergePodSpecWithOptions(pod.spec, extension.spec)
+    core.info(
+      `[createJobPod] After merge, total volumes: ${pod.spec.volumes.length}`
+    )
+  }
 
-  if (registry) {
+  if (extension?.metadata) {
+    core.info(`[createJobPod] Merging extension metadata`)
+    mergeObjectMeta(pod.metadata, extension.metadata)
+  }
+
+  if (registry?.username && registry?.password) {
+    core.info(`[createJobPod] Creating image pull secret`)
     const secret = await createDockerSecret(registry)
     if (!secret?.metadata?.name) {
       throw new Error(`created secret does not have secret.metadata.name`)
     }
-    const secretReference = new k8s.V1LocalObjectReference()
-    secretReference.name = secret.metadata.name
-    appPod.spec.imagePullSecrets = [secretReference]
+    pod.spec.imagePullSecrets = [{ name: secret.metadata.name }]
   }
 
-  if (extension?.metadata) {
-    mergeObjectMeta(appPod, extension.metadata)
+  core.info(`[createJobPod] Final pod spec before creation:`)
+  core.info(`[createJobPod] Volumes: ${JSON.stringify(pod.spec.volumes)}`)
+  core.info(`[createJobPod] Containers: ${pod.spec.containers.length}`)
+  for (let i = 0; i < pod.spec.containers.length; i++) {
+    const c = pod.spec.containers[i]
+    core.info(`[createJobPod] Container ${i} (${c.name}):`)
+    core.info(
+      `[createJobPod]   - volumeMounts: ${JSON.stringify(c.volumeMounts)}`
+    )
   }
 
-  if (extension?.spec) {
-    mergePodSpecWithOptions(appPod.spec, extension.spec)
-  }
-
-  return await k8sApi.createNamespacedPod({
+  const result = await k8sApi.createNamespacedPod({
     namespace: namespace(),
-    body: appPod
+    body: pod
   })
+
+  core.info(`[createJobPod] Pod created successfully: ${result.metadata?.name}`)
+
+  return result
 }
 
 export async function createContainerStepPod(
