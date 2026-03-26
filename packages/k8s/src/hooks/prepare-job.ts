@@ -151,7 +151,7 @@ export async function prepareJob(
 
   // Add sleep for debugging
   core.info(
-    '[DEBUG] Sleeping for 120 seconds to allow manual debugging of pods...'
+    '[DEBUG] Sleeping for 300 seconds to allow manual debugging of pods...'
   )
   core.info(
     `[DEBUG] Runner pod: Check logs with 'kubectl logs -n <namespace> <runner-pod-name>'`
@@ -161,7 +161,7 @@ export async function prepareJob(
     `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
   )
   core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
-  // await new Promise(resolve => setTimeout(resolve, 120000)) // 2 minute sleep
+  await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
   core.info('[DEBUG] Sleep complete, continuing with workspace copy...')
 
   try {
