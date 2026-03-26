@@ -53,7 +53,9 @@ export async function prepareJob(
 
   let container: k8s.V1Container | undefined = undefined
   if (args.container?.image) {
-    core.info(`[prepareJob] Creating main container spec for image: ${args.container.image}`)
+    core.info(
+      `[prepareJob] Creating main container spec for image: ${args.container.image}`
+    )
     container = createContainerSpec(
       args.container,
       JOB_CONTAINER_NAME,
@@ -64,7 +66,9 @@ export async function prepareJob(
 
   let services: k8s.V1Container[] = []
   if (args.services?.length) {
-    core.info(`[prepareJob] Creating service container specs for: ${args.services.map(s => s.image).join(', ')}`)
+    core.info(
+      `[prepareJob] Creating service container specs for: ${args.services.map(s => s.image).join(', ')}`
+    )
     services = args.services.map(service => {
       return createContainerSpec(
         service,
@@ -102,14 +106,18 @@ export async function prepareJob(
     core.error('[prepareJob] created pod should have metadata.name')
     throw new Error('created pod should have metadata.name')
   }
-  core.info(`[prepareJob] Job pod created, waiting for it to come online: ${createdPod?.metadata?.name}`)
+  core.info(
+    `[prepareJob] Job pod created, waiting for it to come online: ${createdPod?.metadata?.name}`
+  )
 
   const runnerWorkspace = dirname(process.env.RUNNER_WORKSPACE as string)
   core.info(`[prepareJob] runnerWorkspace: ${runnerWorkspace}`)
 
   let prepareScript: { containerPath: string; runnerPath: string } | undefined
   if (args.container?.userMountVolumes?.length) {
-    core.info(`[prepareJob] Preparing job script for userMountVolumes: ${JSON.stringify(args.container.userMountVolumes)}`)
+    core.info(
+      `[prepareJob] Preparing job script for userMountVolumes: ${JSON.stringify(args.container.userMountVolumes)}`
+    )
     prepareScript = prepareJobScript(args.container.userMountVolumes || [])
     core.info(`[prepareJob] prepareScript: ${JSON.stringify(prepareScript)}`)
   }
@@ -129,11 +137,15 @@ export async function prepareJob(
     throw new Error(`pod failed to come online with error: ${err}`)
   }
 
-  core.info(`[prepareJob] Copying workspace to pod: ${createdPod.metadata.name}`)
+  core.info(
+    `[prepareJob] Copying workspace to pod: ${createdPod.metadata.name}`
+  )
   await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
 
   if (prepareScript) {
-    core.info(`[prepareJob] Executing prepare script in pod: ${prepareScript.containerPath}`)
+    core.info(
+      `[prepareJob] Executing prepare script in pod: ${prepareScript.containerPath}`
+    )
     await execPodStep(
       ['sh', '-e', prepareScript.containerPath],
       createdPod.metadata.name,
@@ -142,7 +154,9 @@ export async function prepareJob(
 
     const promises: Promise<void>[] = []
     for (const vol of args?.container?.userMountVolumes || []) {
-      core.info(`[prepareJob] Copying user volume to pod: ${vol.sourceVolumePath} -> ${vol.targetVolumePath}`)
+      core.info(
+        `[prepareJob] Copying user volume to pod: ${vol.sourceVolumePath} -> ${vol.targetVolumePath}`
+      )
       promises.push(
         execCpToPod(
           createdPod.metadata.name,
@@ -166,7 +180,9 @@ export async function prepareJob(
     )
     core.info(`[prepareJob] isAlpine: ${isAlpine}`)
   } catch (err) {
-    core.error(`[prepareJob] Failed to determine if the pod is alpine: ${JSON.stringify(err)}`)
+    core.error(
+      `[prepareJob] Failed to determine if the pod is alpine: ${JSON.stringify(err)}`
+    )
     const message = (err as any)?.response?.body?.message || err
     throw new Error(`failed to determine if the pod is alpine: ${message}`)
   }
