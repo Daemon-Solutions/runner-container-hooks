@@ -161,7 +161,7 @@ export async function prepareJob(
     `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
   )
   core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
-  await new Promise(resolve => setTimeout(resolve, 120000)) // 2 minute sleep
+  // await new Promise(resolve => setTimeout(resolve, 120000)) // 2 minute sleep
   core.info('[DEBUG] Sleep complete, continuing with workspace copy...')
 
   try {
