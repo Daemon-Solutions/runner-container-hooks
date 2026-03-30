@@ -642,6 +642,8 @@ export async function execCpToPod(
       const execPromise = new Promise((resolve, reject) => {
         core.info(`[execCpToPod] About to call exec.exec()`)
 
+        let wsClosedNormally = false
+
         exec
           .exec(
             namespace(),
@@ -669,6 +671,7 @@ export async function execCpToPod(
                     `Error from execCpToPod - status: ${status.status}, details: \n ${errContent}`
                   )
                 )
+                return
               }
               core.info(`[execCpToPod] Exec successful, resolving...`)
               resolve(status)
@@ -682,36 +685,37 @@ export async function execCpToPod(
             if (ws) {
               core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
 
-              // Add WebSocket event handlers for debugging
-              ws.on('open', () => {
-                core.info('[execCpToPod] WebSocket opened')
-              })
-
               ws.on('close', (code: number, reason: string) => {
                 core.info(
                   `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
                 )
+
+                // If WebSocket closes normally (code 1000) and no errors, resolve
+                if (code === 1000 && errStream.size() === 0) {
+                  core.info(
+                    `[execCpToPod] WebSocket closed normally, resolving promise`
+                  )
+                  wsClosedNormally = true
+                  // Give callback a moment to fire, then resolve if it hasn't
+                  setTimeout(() => {
+                    resolve({ status: 'Success' })
+                  }, 1000)
+                }
               })
 
               ws.on('error', (err: Error) => {
                 core.error(`[execCpToPod] WebSocket error: ${err.message}`)
-                core.error(`[execCpToPod] WebSocket error stack: ${err.stack}`)
-              })
-
-              ws.on('message', (data: any) => {
-                core.info(
-                  `[execCpToPod] WebSocket message received: ${typeof data}`
-                )
+                reject(err)
               })
             }
           })
           .catch(e => {
-            core.error(`[execCpToPod] exec.exec() promise rejected`)
             core.error(`[execCpToPod] Exec threw error: ${e}`)
             core.error(`[execCpToPod] Error type: ${typeof e}`)
             core.error(`[execCpToPod] Error message: ${e?.message}`)
             core.error(`[execCpToPod] Error stack: ${e?.stack}`)
             core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
+            core.error(`[execCpToPod] exec.exec() promise rejected: ${e}`)
             reject(e)
           })
       })
