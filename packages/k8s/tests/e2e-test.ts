@@ -28,19 +28,14 @@ describe('e2e', () => {
   })
 
   afterAll(async () => {
-    // Log active handles
-    if (process._getActiveHandles) {
-      console.log('Active handles:', process._getActiveHandles().length)
-    }
-    if (process._getActiveRequests) {
-      console.log('Active requests:', process._getActiveRequests().length)
-    }
+    // Give Jest 5 seconds to finish reporting
+    await new Promise(resolve => setTimeout(resolve, 5000))
 
-    // Force exit after a short delay
-    setTimeout(() => {
-      console.log('Forcing exit...')
+    // Check if we're still hanging
+    if (process._getActiveHandles && process._getActiveHandles().length > 0) {
+      console.log('Active handles still present, forcing exit...')
       process.exit(0)
-    }, 1000)
+    }
   })
 
   it('should prepare job, run script step, run container step then cleanup without errors', async () => {
