@@ -644,6 +644,7 @@ export async function execCpToPod(
 
         let callbackFired = false
         let resolved = false
+        let websocket: any | null = null
 
         exec
           .exec(
@@ -670,6 +671,12 @@ export async function execCpToPod(
                 const errContent = errStream.getContentsAsString()
                 core.error(`[execCpToPod] Error stream content: ${errContent}`)
                 resolved = true
+
+                // Close WebSocket before rejecting
+                if (websocket && websocket.readyState === 1) {
+                  websocket.close()
+                }
+
                 reject(
                   new Error(
                     `Error from execCpToPod - status: ${status.status}, details: \n ${errContent}`
@@ -679,6 +686,12 @@ export async function execCpToPod(
               }
               core.info(`[execCpToPod] Exec successful, resolving...`)
               resolved = true
+
+              // Close WebSocket before resolving
+              if (websocket && websocket.readyState === 1) {
+                websocket.close()
+              }
+
               resolve(status)
             }
           )
@@ -688,6 +701,7 @@ export async function execCpToPod(
             core.info(`[execCpToPod] WebSocket exists: ${!!ws}`)
 
             if (ws) {
+              websocket = ws
               core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
 
               const closeHandler = (code: number, reason: string): void => {
@@ -717,18 +731,31 @@ export async function execCpToPod(
                   reject(err)
                 }
               }
+
               ws.on('close', closeHandler)
               ws.on('error', errorHandler)
 
               // Clean up event listeners when promise settles
               const cleanup = (): void => {
-                if (ws) {
-                  ws.removeListener('close', closeHandler)
-                  ws.removeListener('error', errorHandler)
+                if (websocket) {
+                  websocket.removeListener('close', closeHandler)
+                  websocket.removeListener('error', errorHandler)
+
+                  // Force close if still open
+                  if (
+                    websocket.readyState === 1 ||
+                    websocket.readyState === 0
+                  ) {
+                    core.info(`[execCpToPod] Force closing WebSocket in cleanup`)
+                    websocket.close()
+                  }
                 }
               }
+
               // Attach cleanup to promise resolution/rejection
-              execPromise.then(cleanup, cleanup)
+              execPromise.then(cleanup, cleanup).catch(() => {
+                // Ignore cleanup errors
+              })
             }
           })
           .catch(e => {
@@ -741,13 +768,18 @@ export async function execCpToPod(
             core.error(`[execCpToPod] exec.exec() promise rejected: ${e}`)
             if (!callbackFired) {
               resolved = true
+
+              // Close WebSocket before rejecting
+              if (websocket && websocket.readyState === 1) {
+                websocket.close()
+              }
+
               reject(e)
             }
           })
       })
 
-      // Race between exec and timeout
-      await Promise.race([execPromise, timeoutPromise])
+      await execPromise
 
       core.info(
         `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
