@@ -632,12 +632,6 @@ export async function execCpToPod(
         10
       ) // 10 minutes default
       core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          core.error(`[execCpToPod] Exec timeout after ${EXEC_TIMEOUT_MS}ms`)
-          reject(new Error(`Exec timeout after ${EXEC_TIMEOUT_MS}ms`))
-        }, EXEC_TIMEOUT_MS)
-      })
 
       const execPromise = new Promise((resolve, reject) => {
         core.info(`[execCpToPod] About to call exec.exec()`)
@@ -781,32 +775,28 @@ export async function execCpToPod(
           })
       })
 
-      try {
-        core.info(`[execCpToPod] Executing tar extraction in pod...`)
-        core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
+      core.info(`[execCpToPod] Executing tar extraction in pod...`)
+      core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
 
-        // Use Promise.race to implement timeout
-        await Promise.race([
-          execPromise,
-          new Promise((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`
-                  )
-                ),
-              EXEC_TIMEOUT_MS
-            )
+      // Use Promise.race to implement timeout
+      await Promise.race([
+        execPromise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`
+                )
+              ),
+            EXEC_TIMEOUT_MS
           )
-        ])
-
-        core.info(
-          `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
         )
-      } catch (error) {
-        throw error
-      }
+      ])
+
+      core.info(
+        `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
+      )
       break
     } catch (error) {
       core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
