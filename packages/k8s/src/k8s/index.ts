@@ -785,9 +785,7 @@ export async function execCpToPod(
           setTimeout(
             () =>
               reject(
-                new Error(
-                  `Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`
-                )
+                new Error(`Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`)
               ),
             EXEC_TIMEOUT_MS
           )
