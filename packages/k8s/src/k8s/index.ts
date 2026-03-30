@@ -316,9 +316,9 @@ export async function deletePod(name: string): Promise<void> {
 }
 
 export async function execPodStep(
+  command: string[],
   podName: string,
   containerName: string,
-  command: string[],
   stdin?: stream.Readable
 ): Promise<number> {
   const exec = new k8s.Exec(kc)
