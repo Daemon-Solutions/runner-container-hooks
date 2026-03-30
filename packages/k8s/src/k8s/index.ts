@@ -690,7 +690,7 @@ export async function execCpToPod(
             if (ws) {
               core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
 
-              const closeHandler = (code: number, reason: string) => {
+              const closeHandler = (code: number, reason: string): void => {
                 core.info(
                   `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
                 )
@@ -710,25 +710,23 @@ export async function execCpToPod(
                 }
               }
 
-              const errorHandler = (err: Error) => {
+              const errorHandler = (err: Error): void => {
                 core.error(`[execCpToPod] WebSocket error: ${err.message}`)
                 if (!callbackFired && !resolved) {
                   resolved = true
                   reject(err)
                 }
               }
-
               ws.on('close', closeHandler)
               ws.on('error', errorHandler)
 
               // Clean up event listeners when promise settles
-              const cleanup = () => {
+              const cleanup = (): void => {
                 if (ws) {
                   ws.removeListener('close', closeHandler)
                   ws.removeListener('error', errorHandler)
                 }
               }
-
               // Attach cleanup to promise resolution/rejection
               execPromise.then(cleanup, cleanup)
             }
