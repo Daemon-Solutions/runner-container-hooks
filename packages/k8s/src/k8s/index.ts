@@ -718,7 +718,15 @@ export async function execCpToPod(
                 // Close WebSocket and wait for close event before rejecting
                 if (websocket && websocket.readyState === 1) {
                   await new Promise<void>(closeResolve => {
+                    const closeTimeout = setTimeout(() => {
+                      core.warning(
+                        '[execCpToPod] WebSocket close timeout after error'
+                      )
+                      closeResolve()
+                    }, 5000)
+
                     websocket.once('close', () => {
+                      clearTimeout(closeTimeout)
                       core.info('[execCpToPod] WebSocket closed after error')
                       closeResolve()
                     })
@@ -739,7 +747,13 @@ export async function execCpToPod(
               // Close WebSocket and wait for close event before resolving
               if (websocket && websocket.readyState === 1) {
                 await new Promise<void>(closeResolve => {
+                  const closeTimeout = setTimeout(() => {
+                    core.warning('[execCpToPod] WebSocket close timeout')
+                    closeResolve()
+                  }, 5000)
+
                   websocket.once('close', () => {
+                    clearTimeout(closeTimeout)
                     core.info('[execCpToPod] WebSocket closed cleanly')
                     closeResolve()
                   })
