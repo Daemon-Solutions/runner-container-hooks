@@ -41,21 +41,21 @@ export async function prepareJob(
   args: PrepareJobArgs,
   responseFile
 ): Promise<void> {
-  core.info('[prepareJob] Starting prepareJob hook')
-  core.info(`[prepareJob] Args: ${JSON.stringify(args)}`)
+  core.debug('[prepareJob] Starting prepareJob hook')
+  core.debug(`[prepareJob] Args: ${JSON.stringify(args)}`)
   if (!args.container) {
     core.error('[prepareJob] No job container provided!')
     throw new Error('Job Container is required.')
   }
 
   await prunePods()
-  core.info('[prepareJob] Pruned old pods')
+  core.debug('[prepareJob] Pruned old pods')
 
   const extension = readExtensionFromFile()
 
   let container: k8s.V1Container | undefined = undefined
   if (args.container?.image) {
-    core.info(
+    core.debug(
       `[prepareJob] Creating main container spec for image: ${args.container.image}`
     )
     container = createContainerSpec(
@@ -68,7 +68,7 @@ export async function prepareJob(
 
   let services: k8s.V1Container[] = []
   if (args.services?.length) {
-    core.info(
+    core.debug(
       `[prepareJob] Creating service container specs for: ${args.services.map(s => s.image).join(', ')}`
     )
     services = args.services.map(service => {
@@ -88,7 +88,7 @@ export async function prepareJob(
 
   let createdPod: k8s.V1Pod | undefined = undefined
   try {
-    core.info('[prepareJob] Creating job pod...')
+    core.debug('[prepareJob] Creating job pod...')
     createdPod = await createJobPod(
       getJobPodName(),
       container,
@@ -96,7 +96,7 @@ export async function prepareJob(
       args.container.registry,
       extension
     )
-    core.info(`[prepareJob] Created pod: ${createdPod?.metadata?.name}`)
+    core.debug(`[prepareJob] Created pod: ${createdPod?.metadata?.name}`)
   } catch (err) {
     await prunePods()
     core.error(`[prepareJob] createPod failed: ${JSON.stringify(err)}`)
@@ -108,66 +108,51 @@ export async function prepareJob(
     core.error('[prepareJob] created pod should have metadata.name')
     throw new Error('created pod should have metadata.name')
   }
-  core.info(
+  core.debug(
     `[prepareJob] Job pod created, waiting for it to come online: ${createdPod?.metadata?.name}`
   )
 
   const runnerWorkspace = dirname(process.env.RUNNER_WORKSPACE as string)
-  core.info(`[prepareJob] runnerWorkspace: ${runnerWorkspace}`)
+  core.debug(`[prepareJob] runnerWorkspace: ${runnerWorkspace}`)
 
   let prepareScript: { containerPath: string; runnerPath: string } | undefined
   if (args.container?.userMountVolumes?.length) {
-    core.info(
+    core.debug(
       `[prepareJob] Preparing job script for userMountVolumes: ${JSON.stringify(args.container.userMountVolumes)}`
     )
     prepareScript = prepareJobScript(args.container.userMountVolumes || [])
-    core.info(`[prepareJob] prepareScript: ${JSON.stringify(prepareScript)}`)
+    core.debug(`[prepareJob] prepareScript: ${JSON.stringify(prepareScript)}`)
   }
 
   try {
-    core.info('[prepareJob] Waiting for pod to reach RUNNING phase...')
+    core.debug('[prepareJob] Waiting for pod to reach RUNNING phase...')
     await waitForPodPhases(
       createdPod.metadata.name,
       new Set([PodPhase.RUNNING]),
       new Set([PodPhase.PENDING]),
       getPrepareJobTimeoutSeconds()
     )
-    core.info('[prepareJob] Pod is RUNNING')
+    core.debug('[prepareJob] Pod is RUNNING')
   } catch (err) {
     await prunePods()
     core.error(`[prepareJob] pod failed to come online: ${err}`)
     throw new Error(`pod failed to come online with error: ${err}`)
   }
 
-  core.info(
+  core.debug(
     `[prepareJob] Copying workspace to pod: ${createdPod.metadata.name}`
   )
 
   // Add debugging before copy
-  core.info(`[DEBUG] About to copy workspace`)
-  core.info(`[DEBUG] Source: ${runnerWorkspace}`)
-  core.info(`[DEBUG] Destination: /__w`)
-  core.info(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
-
-  // Add sleep for debugging
-  // core.info(
-  //   '[DEBUG] Sleeping for 300 seconds to allow manual debugging of pods...'
-  // )
-  // core.info(
-  //   `[DEBUG] Runner pod: Check logs with 'kubectl logs -n <namespace> <runner-pod-name>'`
-  // )
-  // core.info(`[DEBUG] Workflow pod: ${createdPod.metadata.name}`)
-  // core.info(
-  //   `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
-  // )
-  // core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
-  // // await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
-  // core.info('[DEBUG] Sleep complete, continuing with workspace copy...') [DISABLED FOR NOW] - can re-enable if we need to debug workspace copy issues again
+  core.debug(`[DEBUG] About to copy workspace`)
+  core.debug(`[DEBUG] Source: ${runnerWorkspace}`)
+  core.debug(`[DEBUG] Destination: /__w`)
+  core.debug(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
 
   try {
-    core.info(`[DEBUG] Starting execCpToPod...`)
+    core.debug(`[DEBUG] Starting execCpToPod...`)
     await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
-    core.info(`[DEBUG] Workspace copy completed successfully`)
+    core.debug(`[DEBUG] Workspace copy completed successfully`)
   } catch (err) {
     core.error(`[DEBUG] Workspace copy failed with error`)
     core.error(`[DEBUG] Error type: ${typeof err}`)
@@ -187,7 +172,7 @@ export async function prepareJob(
         isAlpine: false
       }
       writeToResponseFile(responseFile, JSON.stringify(errorResponse))
-      core.info(`[DEBUG] Wrote error response file`)
+      core.debug(`[DEBUG] Wrote error response file`)
     } catch (writeErr) {
       core.error(`[DEBUG] Failed to write error response: ${writeErr}`)
     }
@@ -196,7 +181,7 @@ export async function prepareJob(
   }
 
   if (prepareScript) {
-    core.info(
+    core.debug(
       `[prepareJob] Executing prepare script in pod: ${prepareScript.containerPath}`
     )
     await execPodStep(
@@ -207,7 +192,7 @@ export async function prepareJob(
 
     const promises: Promise<void>[] = []
     for (const vol of args?.container?.userMountVolumes || []) {
-      core.info(
+      core.debug(
         `[prepareJob] Copying user volume to pod: ${vol.sourceVolumePath} -> ${vol.targetVolumePath}`
       )
       promises.push(
@@ -219,19 +204,17 @@ export async function prepareJob(
       )
     }
     await Promise.all(promises)
-    core.info('[prepareJob] All user volumes copied')
+    core.debug('[prepareJob] All user volumes copied')
   }
 
-  core.info('[prepareJob] Job pod is ready for traffic')
+  core.debug('[prepareJob] Job pod is ready for traffic')
 
   let isAlpine = false
   try {
-    core.info('[prepareJob] Checking if pod is Alpine...')
     isAlpine = await isPodContainerAlpine(
       createdPod.metadata.name,
       JOB_CONTAINER_NAME
     )
-    core.info(`[prepareJob] isAlpine: ${isAlpine}`)
   } catch (err) {
     core.error(
       `[prepareJob] Failed to determine if the pod is alpine: ${JSON.stringify(err)}`
@@ -239,7 +222,6 @@ export async function prepareJob(
     const message = (err as any)?.response?.body?.message || err
     throw new Error(`failed to determine if the pod is alpine: ${message}`)
   }
-  core.info(`[prepareJob] Setting isAlpine to ${isAlpine}`)
   generateResponseFile(responseFile, args, createdPod, isAlpine)
 }
 
