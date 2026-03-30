@@ -696,7 +696,12 @@ export async function execCpToPod(
                 )
 
                 // If WebSocket closes normally and callback hasn't fired, resolve immediately
-                if (code === 1000 && !callbackFired && !resolved && errStream.size() === 0) {
+                if (
+                  code === 1000 &&
+                  !callbackFired &&
+                  !resolved &&
+                  errStream.size() === 0
+                ) {
                   core.info(
                     `[execCpToPod] WebSocket closed normally without callback, resolving immediately`
                   )
