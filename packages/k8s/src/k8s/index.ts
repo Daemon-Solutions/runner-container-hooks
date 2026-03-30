@@ -642,8 +642,6 @@ export async function execCpToPod(
       const execPromise = new Promise((resolve, reject) => {
         core.info(`[execCpToPod] About to call exec.exec()`)
 
-        let wsClosedNormally = false
-
         exec
           .exec(
             namespace(),
@@ -695,7 +693,6 @@ export async function execCpToPod(
                   core.info(
                     `[execCpToPod] WebSocket closed normally, resolving promise`
                   )
-                  wsClosedNormally = true
                   // Give callback a moment to fire, then resolve if it hasn't
                   setTimeout(() => {
                     resolve({ status: 'Success' })
