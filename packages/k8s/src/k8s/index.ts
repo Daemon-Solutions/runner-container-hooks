@@ -343,7 +343,7 @@ export async function execPodStep(
     `[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`
   )
 
-  let pingInterval: ReturnType<typeof setTimeout> | null = null
+  let pingInterval: ReturnType<typeof setInterval> | null = null
   let pongTimeout: ReturnType<typeof setTimeout> | null = null
 
   const stopHeartbeat = (): void => {
@@ -432,16 +432,27 @@ export async function execPodStep(
         stdin ?? null,
         false /* tty */,
         async resp => {
-          stopHeartbeat()
           core.info(
             `[execPodStep] execPodStep response: ${JSON.stringify(resp)}`
           )
 
+          // Stop heartbeat immediately
+          stopHeartbeat()
+
           // Close WebSocket and wait for it before resolving/rejecting
           const closeWebSocket = async (): Promise<void> => {
             if (ws && (ws.readyState === 1 || ws.readyState === 0)) {
-              await new Promise<void>(closeResolve => {
+              return new Promise<void>(closeResolve => {
+                // Set a timeout to ensure we don't hang forever
+                const closeTimeout = setTimeout(() => {
+                  core.warning(
+                    '[execPodStep] WebSocket close timeout, forcing cleanup'
+                  )
+                  closeResolve()
+                }, 5000)
+
                 ws.once('close', () => {
+                  clearTimeout(closeTimeout)
                   core.info('[execPodStep] WebSocket closed cleanly')
                   closeResolve()
                 })
@@ -477,10 +488,20 @@ export async function execPodStep(
         stopHeartbeat()
         core.error(`[execPodStep] exec.exec threw error: ${e}`)
 
-        // Close WebSocket before rejecting
+        // Close WebSocket before rejecting with timeout protection
         if (ws && (ws.readyState === 1 || ws.readyState === 0)) {
           await new Promise<void>(closeResolve => {
-            ws.once('close', () => closeResolve())
+            const closeTimeout = setTimeout(() => {
+              core.warning(
+                '[execPodStep] WebSocket close timeout in error handler'
+              )
+              closeResolve()
+            }, 5000)
+
+            ws.once('close', () => {
+              clearTimeout(closeTimeout)
+              closeResolve()
+            })
             ws.close()
           })
         }
