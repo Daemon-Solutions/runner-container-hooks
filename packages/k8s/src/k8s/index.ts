@@ -666,9 +666,15 @@ export async function execCpToPod(
                 core.error(`[execCpToPod] Error stream content: ${errContent}`)
                 resolved = true
 
-                // Close WebSocket before rejecting
+                // Close WebSocket and wait for close event before rejecting
                 if (websocket && websocket.readyState === 1) {
-                  websocket.close()
+                  await new Promise<void>(closeResolve => {
+                    websocket.once('close', () => {
+                      core.info('[execCpToPod] WebSocket closed after error')
+                      closeResolve()
+                    })
+                    websocket.close()
+                  })
                 }
 
                 reject(
@@ -681,9 +687,15 @@ export async function execCpToPod(
               core.info(`[execCpToPod] Exec successful, resolving...`)
               resolved = true
 
-              // Close WebSocket before resolving
+              // Close WebSocket and wait for close event before resolving
               if (websocket && websocket.readyState === 1) {
-                websocket.close()
+                await new Promise<void>(closeResolve => {
+                  websocket.once('close', () => {
+                    core.info('[execCpToPod] WebSocket closed cleanly')
+                    closeResolve()
+                  })
+                  websocket.close()
+                })
               }
 
               resolve(status)
