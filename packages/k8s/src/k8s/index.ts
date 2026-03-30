@@ -600,7 +600,7 @@ export async function execCpToPod(
   }
 
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
-  await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
+  // await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep [DISABLED]
   let attempt = 0
   while (true) {
     try {
@@ -626,7 +626,12 @@ export async function execCpToPod(
       core.info(`[execCpToPod] Executing tar extraction in pod...`)
 
       // Create a timeout promise
-      const EXEC_TIMEOUT_MS = 120000 // 2 minutes
+      // Create a timeout promise with configurable timeout
+      const EXEC_TIMEOUT_MS = parseInt(
+        process.env.ACTIONS_RUNNER_EXEC_TIMEOUT_MS || '600000',
+        10
+      ) // 10 minutes default
+      core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
           core.error(`[execCpToPod] Exec timeout after ${EXEC_TIMEOUT_MS}ms`)
