@@ -70,24 +70,24 @@ export async function createJobPod(
   registry?: Registry,
   extension?: k8s.V1PodTemplateSpec
 ): Promise<k8s.V1Pod> {
-  core.info(`[createJobPod] Starting pod creation: ${name}`)
-  core.info(`[createJobPod] Has jobContainer: ${!!jobContainer}`)
-  core.info(`[createJobPod] Services count: ${services?.length || 0}`)
-  core.info(`[createJobPod] Has registry: ${!!registry}`)
-  core.info(`[createJobPod] Has extension: ${!!extension}`)
+  core.debug(`[createJobPod] Starting pod creation: ${name}`)
+  core.debug(`[createJobPod] Has jobContainer: ${!!jobContainer}`)
+  core.debug(`[createJobPod] Services count: ${services?.length || 0}`)
+  core.debug(`[createJobPod] Has registry: ${!!registry}`)
+  core.debug(`[createJobPod] Has extension: ${!!extension}`)
 
   const containers: k8s.V1Container[] = []
   if (jobContainer) {
-    core.info(`[createJobPod] Adding job container: ${jobContainer.name}`)
-    core.info(
+    core.debug(`[createJobPod] Adding job container: ${jobContainer.name}`)
+    core.debug(
       `[createJobPod] Job container volumeMounts: ${JSON.stringify(jobContainer.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
     )
     containers.push(jobContainer)
   }
   if (services?.length) {
-    core.info(`[createJobPod] Adding ${services.length} service containers`)
+    core.debug(`[createJobPod] Adding ${services.length} service containers`)
     for (const service of services) {
-      core.info(
+      core.debug(
         `[createJobPod] Service: ${service.name}, volumeMounts: ${JSON.stringify(service.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
       )
     }
@@ -118,8 +118,8 @@ export async function createJobPod(
   // GITHUB_WORKSPACE is like /__w/repo-name/repo-name
   const githubWorkspace = process.env.GITHUB_WORKSPACE
   const workingDirPath = githubWorkspace?.split('/').slice(-2).join('/') ?? ''
-  core.info(`[createJobPod] GITHUB_WORKSPACE: ${githubWorkspace}`)
-  core.info(`[createJobPod] Extracted workingDirPath: ${workingDirPath}`)
+  core.debug(`[createJobPod] GITHUB_WORKSPACE: ${githubWorkspace}`)
+  core.debug(`[createJobPod] Extracted workingDirPath: ${workingDirPath}`)
 
   const initCommands = [
     'mkdir -p /mnt/externals',
@@ -132,7 +132,7 @@ export async function createJobPod(
     initCommands.push(`mkdir -p /mnt/work/${workingDirPath}`)
   }
 
-  core.info(`[createJobPod] Init commands: ${initCommands.join(' && ')}`)
+  core.debug(`[createJobPod] Init commands: ${initCommands.join(' && ')}`)
 
   appPod.spec.initContainers = [
     {
@@ -164,7 +164,7 @@ export async function createJobPod(
 
   appPod.spec.restartPolicy = 'Never'
 
-  core.info(`[createJobPod] Creating standard volumes`)
+  core.debug(`[createJobPod] Creating standard volumes`)
   appPod.spec.volumes = [
     {
       name: EXTERNALS_VOLUME_NAME,
@@ -179,12 +179,12 @@ export async function createJobPod(
       emptyDir: {}
     }
   ]
-  core.info(
+  core.debug(
     `[createJobPod] Initial volumes: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
   )
 
   if (registry) {
-    core.info(`[createJobPod] Creating docker registry secret`)
+    core.debug(`[createJobPod] Creating docker registry secret`)
     const secret = await createDockerSecret(registry)
     if (!secret?.metadata?.name) {
       throw new Error(`created secret does not have secret.metadata.name`)
@@ -192,64 +192,64 @@ export async function createJobPod(
     const secretReference = new k8s.V1LocalObjectReference()
     secretReference.name = secret.metadata.name
     appPod.spec.imagePullSecrets = [secretReference]
-    core.info(`[createJobPod] Added imagePullSecret: ${secret.metadata.name}`)
+    core.debug(`[createJobPod] Added imagePullSecret: ${secret.metadata.name}`)
   }
 
   if (extension?.metadata) {
-    core.info(`[createJobPod] Merging extension metadata`)
-    core.info(
+    core.debug(`[createJobPod] Merging extension metadata`)
+    core.debug(
       `[createJobPod] Extension labels: ${JSON.stringify(extension.metadata.labels)}`
     )
-    core.info(
+    core.debug(
       `[createJobPod] Extension annotations: ${JSON.stringify(extension.metadata.annotations)}`
     )
     mergeObjectMeta(appPod, extension.metadata)
   }
 
   if (extension?.spec) {
-    core.info(`[createJobPod] Merging extension spec`)
-    core.info(
+    core.debug(`[createJobPod] Merging extension spec`)
+    core.debug(
       `[createJobPod] Extension volumes: ${extension.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
     )
-    core.info(
+    core.debug(
       `[createJobPod] Extension containers: ${extension.spec.containers?.map(c => c.name).join(', ') || 'none'}`
     )
-    core.info(
+    core.debug(
       `[createJobPod] Volumes BEFORE merge: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
     )
     mergePodSpecWithOptions(appPod.spec, extension.spec)
-    core.info(
+    core.debug(
       `[createJobPod] Volumes AFTER merge: ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
     )
-    core.info(
+    core.debug(
       `[createJobPod] Total containers after merge: ${appPod.spec.containers.length}`
     )
   }
 
-  core.info(`[createJobPod] Final pod configuration:`)
-  core.info(
+  core.debug(`[createJobPod] Final pod configuration:`)
+  core.debug(
     `[createJobPod] - Volumes (${appPod.spec.volumes?.length || 0}): ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
   )
-  core.info(`[createJobPod] - Containers (${appPod.spec.containers.length}):`)
+  core.debug(`[createJobPod] - Containers (${appPod.spec.containers.length}):`)
   for (const container of appPod.spec.containers) {
-    core.info(`[createJobPod]   * ${container.name}:`)
-    core.info(`[createJobPod]     - Image: ${container.image}`)
-    core.info(
+    core.debug(`[createJobPod]   * ${container.name}:`)
+    core.debug(`[createJobPod]     - Image: ${container.image}`)
+    core.debug(
       `[createJobPod]     - VolumeMounts (${container.volumeMounts?.length || 0}): ${container.volumeMounts?.map(vm => `${vm.name}@${vm.mountPath}`).join(', ') || 'none'}`
     )
   }
-  core.info(
+  core.debug(
     `[createJobPod] - InitContainers (${appPod.spec.initContainers?.length || 0})`
   )
 
-  core.info(`[createJobPod] Creating pod in namespace: ${namespace()}`)
+  core.debug(`[createJobPod] Creating pod in namespace: ${namespace()}`)
   const result = await k8sApi.createNamespacedPod({
     namespace: namespace(),
     body: appPod
   })
 
-  core.info(`[createJobPod] Pod created successfully: ${result.metadata?.name}`)
-  core.info(`[createJobPod] Pod UID: ${result.metadata?.uid}`)
+  core.debug(`[createJobPod] Pod created successfully: ${result.metadata?.name}`)
+  core.debug(`[createJobPod] Pod UID: ${result.metadata?.uid}`)
 
   return result
 }
@@ -322,7 +322,7 @@ export async function execPodStep(
   stdin?: stream.Readable
 ): Promise<number> {
   const exec = new k8s.Exec(kc)
-  core.info(
+  core.debug(
     `[execPodStep] Starting execPodStep with command: ${JSON.stringify(command)}, podName: ${podName}, containerName: ${containerName}`
   )
 
@@ -637,30 +637,30 @@ export async function execCpToPod(
   runnerPath: string,
   containerPath: string
 ): Promise<void> {
-  core.info(`[execCpToPod] Starting copy operation`)
-  core.info(`[execCpToPod] Source (runnerPath): ${runnerPath}`)
-  core.info(`[execCpToPod] Destination (containerPath): ${containerPath}`)
-  core.info(`[execCpToPod] Target pod: ${podName}`)
-  core.info(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
+  core.debug(`[execCpToPod] Starting copy operation`)
+  core.debug(`[execCpToPod] Source (runnerPath): ${runnerPath}`)
+  core.debug(`[execCpToPod] Destination (containerPath): ${containerPath}`)
+  core.debug(`[execCpToPod] Target pod: ${podName}`)
+  core.debug(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
 
   // Check if source path exists
   try {
     const sourceExists = fs.existsSync(runnerPath)
-    core.info(`[execCpToPod] Source path exists: ${sourceExists}`)
+    core.debug(`[execCpToPod] Source path exists: ${sourceExists}`)
 
     if (sourceExists) {
       const sourceStats = fs.statSync(runnerPath)
-      core.info(
+      core.debug(
         `[execCpToPod] Source is directory: ${sourceStats.isDirectory()}`
       )
-      core.info(`[execCpToPod] Source is file: ${sourceStats.isFile()}`)
+      core.debug(`[execCpToPod] Source is file: ${sourceStats.isFile()}`)
 
       if (sourceStats.isDirectory()) {
         const files = fs.readdirSync(runnerPath)
-        core.info(
+        core.debug(
           `[execCpToPod] Source directory contains ${files.length} items`
         )
-        core.info(
+        core.debug(
           `[execCpToPod] First few items: ${files.slice(0, 5).join(', ')}`
         )
       }
@@ -678,7 +678,7 @@ export async function execCpToPod(
   let attempt = 0
   while (true) {
     try {
-      core.info(`[execCpToPod] Attempt ${attempt + 1} starting...`)
+      core.debug(`[execCpToPod] Attempt ${attempt + 1} starting...`)
 
       const exec = new k8s.Exec(kc)
       // Use tar to extract with --no-same-owner to avoid ownership issues.
@@ -691,13 +691,13 @@ export async function execCpToPod(
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
       ]
 
-      core.info(`[execCpToPod] Command to execute: ${JSON.stringify(command)}`)
-      core.info(`[execCpToPod] Creating tar pack from: ${runnerPath}`)
+      core.debug(`[execCpToPod] Command to execute: ${JSON.stringify(command)}`)
+      core.debug(`[execCpToPod] Creating tar pack from: ${runnerPath}`)
 
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
 
-      core.info(`[execCpToPod] Executing tar extraction in pod...`)
+      core.debug(`[execCpToPod] Executing tar extraction in pod...`)
 
       // Create a timeout promise
       // Create a timeout promise with configurable timeout
@@ -705,7 +705,7 @@ export async function execCpToPod(
         process.env.ACTIONS_RUNNER_EXEC_TIMEOUT_MS || '600000',
         10
       ) // 10 minutes default
-      core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
+      core.debug(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
 
       const execPromise = new Promise((resolve, reject) => {
         core.info(`[execCpToPod] About to call exec.exec()`)
@@ -727,13 +727,13 @@ export async function execCpToPod(
             async status => {
               if (resolved) return
               callbackFired = true
-              core.info(`[execCpToPod] Exec callback invoked`)
-              core.info(
+              core.debug(`[execCpToPod] Exec callback invoked`)
+              core.debug(
                 `[execCpToPod] Exec completed with status: ${JSON.stringify(status)}`
               )
 
               const errStreamSize = errStream.size()
-              core.info(`[execCpToPod] Error stream size: ${errStreamSize}`)
+              core.debug(`[execCpToPod] Error stream size: ${errStreamSize}`)
 
               if (errStreamSize) {
                 const errContent = errStream.getContentsAsString()
@@ -752,7 +752,7 @@ export async function execCpToPod(
 
                     websocket.once('close', () => {
                       clearTimeout(closeTimeout)
-                      core.info('[execCpToPod] WebSocket closed after error')
+                      core.debug('[execCpToPod] WebSocket closed after error')
                       closeResolve()
                     })
                     websocket.close()
@@ -766,7 +766,7 @@ export async function execCpToPod(
                 )
                 return
               }
-              core.info(`[execCpToPod] Exec successful, resolving...`)
+              core.debug(`[execCpToPod] Exec successful, resolving...`)
               resolved = true
 
               // Close WebSocket and wait for close event before resolving
@@ -779,7 +779,7 @@ export async function execCpToPod(
 
                   websocket.once('close', () => {
                     clearTimeout(closeTimeout)
-                    core.info('[execCpToPod] WebSocket closed cleanly')
+                    core.debug('[execCpToPod] WebSocket closed cleanly')
                     closeResolve()
                   })
                   websocket.close()
@@ -790,16 +790,16 @@ export async function execCpToPod(
             }
           )
           .then(ws => {
-            core.info(`[execCpToPod] exec.exec() promise resolved`)
-            core.info(`[execCpToPod] WebSocket object type: ${typeof ws}`)
-            core.info(`[execCpToPod] WebSocket exists: ${!!ws}`)
+            core.debug(`[execCpToPod] exec.exec() promise resolved`)
+            core.debug(`[execCpToPod] WebSocket object type: ${typeof ws}`)
+            core.debug(`[execCpToPod] WebSocket exists: ${!!ws}`)
 
             if (ws) {
               websocket = ws
-              core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
+              core.debug(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
 
               const closeHandler = (code: number, reason: string): void => {
-                core.info(
+                core.debug(
                   `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
                 )
 
@@ -810,7 +810,7 @@ export async function execCpToPod(
                   !resolved &&
                   errStream.size() === 0
                 ) {
-                  core.info(
+                  core.debug(
                     `[execCpToPod] WebSocket closed normally without callback, resolving immediately`
                   )
                   resolved = true
@@ -840,7 +840,7 @@ export async function execCpToPod(
                     websocket.readyState === 1 ||
                     websocket.readyState === 0
                   ) {
-                    core.info(
+                    core.debug(
                       `[execCpToPod] Force closing WebSocket in cleanup`
                     )
                     websocket.close()
@@ -875,8 +875,8 @@ export async function execCpToPod(
           })
       })
 
-      core.info(`[execCpToPod] Executing tar extraction in pod...`)
-      core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
+      core.debug(`[execCpToPod] Executing tar extraction in pod...`)
+      core.debug(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
 
       // Use Promise.race to implement timeout
       await Promise.race([
@@ -892,7 +892,7 @@ export async function execCpToPod(
         )
       ])
 
-      core.info(
+      core.debug(
         `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
       )
       break
@@ -911,12 +911,12 @@ export async function execCpToPod(
         )
       }
 
-      core.info(`[execCpToPod] Sleeping 1 second before retry...`)
+      core.debug(`[execCpToPod] Sleeping 1 second before retry...`)
       await sleep(1000)
     }
   }
 
-  core.info(
+  core.debug(
     `[execCpToPod] Copy operation completed, starting hash verification...`
   )
 
@@ -924,23 +924,23 @@ export async function execCpToPod(
   const delay = 1000
   for (let i = 0; i < attempts; i++) {
     try {
-      core.info(`[execCpToPod] Hash verification attempt ${i + 1}/${attempts}`)
+      core.debug(`[execCpToPod] Hash verification attempt ${i + 1}/${attempts}`)
 
-      core.info(`[execCpToPod] Calculating local hash for: ${runnerPath}`)
+      core.debug(`[execCpToPod] Calculating local hash for: ${runnerPath}`)
       const want = await localCalculateOutputHashSorted([
         'sh',
         '-c',
         listDirAllCommand(runnerPath)
       ])
-      core.info(`[execCpToPod] Local hash: ${want}`)
+      core.debug(`[execCpToPod] Local hash: ${want}`)
 
-      core.info(`[execCpToPod] Calculating remote hash for: ${containerPath}`)
+      core.debug(`[execCpToPod] Calculating remote hash for: ${containerPath}`)
       const got = await execCalculateOutputHashSorted(
         podName,
         JOB_CONTAINER_NAME,
         ['sh', '-c', listDirAllCommand(containerPath)]
       )
-      core.info(`[execCpToPod] Remote hash: ${got}`)
+      core.debug(`[execCpToPod] Remote hash: ${got}`)
 
       if (got !== want) {
         core.warning(
@@ -950,7 +950,7 @@ export async function execCpToPod(
         continue
       }
 
-      core.info(`[execCpToPod] Hash verification successful!`)
+      core.debug(`[execCpToPod] Hash verification successful!`)
       break
     } catch (error) {
       core.error(
@@ -960,7 +960,7 @@ export async function execCpToPod(
     }
   }
 
-  core.info(`[execCpToPod] execCpToPod completed successfully`)
+  core.debug(`[execCpToPod] execCpToPod completed successfully`)
 }
 
 export async function execCpFromPod(
