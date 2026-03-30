@@ -781,11 +781,25 @@ export async function execCpToPod(
           })
       })
 
-      await execPromise
+      try {
+        core.info(`[execCpToPod] Executing tar extraction in pod...`)
+        core.info(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
 
-      core.info(
-        `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
-      )
+        // Use Promise.race to implement timeout
+        await Promise.race([
+          execPromise,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`)),
+              EXEC_TIMEOUT_MS
+            )
+          )
+        ])
+
+        core.info(`[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`)
+      } catch (error) {
+        throw error
+      }
       break
     } catch (error) {
       core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
