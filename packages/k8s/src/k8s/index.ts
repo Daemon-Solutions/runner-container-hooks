@@ -790,13 +790,20 @@ export async function execCpToPod(
           execPromise,
           new Promise((_, reject) =>
             setTimeout(
-              () => reject(new Error(`Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`)),
+              () =>
+                reject(
+                  new Error(
+                    `Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`
+                  )
+                ),
               EXEC_TIMEOUT_MS
             )
           )
         ])
 
-        core.info(`[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`)
+        core.info(
+          `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
+        )
       } catch (error) {
         throw error
       }
