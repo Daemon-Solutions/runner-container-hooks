@@ -710,7 +710,7 @@ export async function execCpToPod(
       core.debug(`[execCpToPod] Using timeout: ${EXEC_TIMEOUT_MS}ms`)
 
       const execPromise = new Promise((resolve, reject) => {
-        core.info(`[execCpToPod] About to call exec.exec()`)
+        core.debug(`[execCpToPod] About to call exec.exec()`)
 
         let callbackFired = false
         let resolved = false
