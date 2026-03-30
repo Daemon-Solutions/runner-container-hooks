@@ -150,19 +150,19 @@ export async function prepareJob(
   core.info(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
 
   // Add sleep for debugging
-  core.info(
-    '[DEBUG] Sleeping for 300 seconds to allow manual debugging of pods...'
-  )
-  core.info(
-    `[DEBUG] Runner pod: Check logs with 'kubectl logs -n <namespace> <runner-pod-name>'`
-  )
-  core.info(`[DEBUG] Workflow pod: ${createdPod.metadata.name}`)
-  core.info(
-    `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
-  )
-  core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
-  // await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
-  core.info('[DEBUG] Sleep complete, continuing with workspace copy...')
+  // core.info(
+  //   '[DEBUG] Sleeping for 300 seconds to allow manual debugging of pods...'
+  // )
+  // core.info(
+  //   `[DEBUG] Runner pod: Check logs with 'kubectl logs -n <namespace> <runner-pod-name>'`
+  // )
+  // core.info(`[DEBUG] Workflow pod: ${createdPod.metadata.name}`)
+  // core.info(
+  //   `[DEBUG] Exec into workflow pod: kubectl exec -it -n <namespace> ${createdPod.metadata.name} -- /bin/sh`
+  // )
+  // core.info(`[DEBUG] Check runner pod filesystem: ls -la /home/runner/`)
+  // // await new Promise(resolve => setTimeout(resolve, 300000)) // 5 minute sleep
+  // core.info('[DEBUG] Sleep complete, continuing with workspace copy...') [DISABLED FOR NOW] - can re-enable if we need to debug workspace copy issues again
 
   try {
     core.info(`[DEBUG] Starting execCpToPod...`)

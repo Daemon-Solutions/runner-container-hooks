@@ -643,6 +643,7 @@ export async function execCpToPod(
         core.info(`[execCpToPod] About to call exec.exec()`)
 
         let callbackFired = false
+        let resolved = false
 
         exec
           .exec(
@@ -655,6 +656,7 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
+              if (resolved) return
               callbackFired = true
               core.info(`[execCpToPod] Exec callback invoked`)
               core.info(
@@ -667,6 +669,7 @@ export async function execCpToPod(
               if (errStreamSize) {
                 const errContent = errStream.getContentsAsString()
                 core.error(`[execCpToPod] Error stream content: ${errContent}`)
+                resolved = true
                 reject(
                   new Error(
                     `Error from execCpToPod - status: ${status.status}, details: \n ${errContent}`
@@ -675,6 +678,7 @@ export async function execCpToPod(
                 return
               }
               core.info(`[execCpToPod] Exec successful, resolving...`)
+              resolved = true
               resolve(status)
             }
           )
@@ -686,29 +690,46 @@ export async function execCpToPod(
             if (ws) {
               core.info(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
 
-              ws.on('close', (code: number, reason: string) => {
+              const closeHandler = (code: number, reason: string) => {
                 core.info(
                   `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
                 )
 
                 // If WebSocket closes normally and callback hasn't fired, resolve immediately
-                if (code === 1000 && !callbackFired && errStream.size() === 0) {
+                if (code === 1000 && !callbackFired && !resolved && errStream.size() === 0) {
                   core.info(
                     `[execCpToPod] WebSocket closed normally without callback, resolving immediately`
                   )
+                  resolved = true
                   resolve({ status: 'Success' })
                 }
-              })
+              }
 
-              ws.on('error', (err: Error) => {
+              const errorHandler = (err: Error) => {
                 core.error(`[execCpToPod] WebSocket error: ${err.message}`)
-                if (!callbackFired) {
+                if (!callbackFired && !resolved) {
+                  resolved = true
                   reject(err)
                 }
-              })
+              }
+
+              ws.on('close', closeHandler)
+              ws.on('error', errorHandler)
+
+              // Clean up event listeners when promise settles
+              const cleanup = () => {
+                if (ws) {
+                  ws.removeListener('close', closeHandler)
+                  ws.removeListener('error', errorHandler)
+                }
+              }
+
+              // Attach cleanup to promise resolution/rejection
+              execPromise.then(cleanup, cleanup)
             }
           })
           .catch(e => {
+            if (resolved) return
             core.error(`[execCpToPod] Exec threw error: ${e}`)
             core.error(`[execCpToPod] Error type: ${typeof e}`)
             core.error(`[execCpToPod] Error message: ${e?.message}`)
@@ -716,6 +737,7 @@ export async function execCpToPod(
             core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
             core.error(`[execCpToPod] exec.exec() promise rejected: ${e}`)
             if (!callbackFired) {
+              resolved = true
               reject(e)
             }
           })
