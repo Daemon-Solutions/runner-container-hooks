@@ -746,7 +746,9 @@ export async function execCpToPod(
                     websocket.readyState === 1 ||
                     websocket.readyState === 0
                   ) {
-                    core.info(`[execCpToPod] Force closing WebSocket in cleanup`)
+                    core.info(
+                      `[execCpToPod] Force closing WebSocket in cleanup`
+                    )
                     websocket.close()
                   }
                 }
