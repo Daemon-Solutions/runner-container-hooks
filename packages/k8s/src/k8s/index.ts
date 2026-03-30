@@ -316,9 +316,9 @@ export async function deletePod(name: string): Promise<void> {
 }
 
 export async function execPodStep(
-  command: string[],
   podName: string,
   containerName: string,
+  command: string[],
   stdin?: stream.Readable
 ): Promise<number> {
   const exec = new k8s.Exec(kc)
@@ -417,8 +417,10 @@ export async function execPodStep(
     }, PING_PERIOD_MS)
   }
 
-  return await new Promise<number>(function (resolve, reject) {
+  return new Promise<number>((resolve, reject) => {
     core.info('[execPodStep] About to call exec.exec')
+    let ws: any | null = null
+
     exec
       .exec(
         namespace(),
@@ -429,24 +431,41 @@ export async function execPodStep(
         process.stderr,
         stdin ?? null,
         false /* tty */,
-        resp => {
+        async resp => {
           stopHeartbeat()
           core.info(
             `[execPodStep] execPodStep response: ${JSON.stringify(resp)}`
           )
+
+          // Close WebSocket and wait for it before resolving/rejecting
+          const closeWebSocket = async (): Promise<void> => {
+            if (ws && (ws.readyState === 1 || ws.readyState === 0)) {
+              await new Promise<void>(closeResolve => {
+                ws.once('close', () => {
+                  core.info('[execPodStep] WebSocket closed cleanly')
+                  closeResolve()
+                })
+                ws.close()
+              })
+            }
+          }
+
           if (resp.status === 'Success') {
             core.info(`[execPodStep] Success, code: ${resp.code}`)
+            await closeWebSocket()
             resolve(resp.code || 0)
           } else {
             core.error(
               `[execPodStep] Failure: ${JSON.stringify({ message: resp?.message, details: resp?.details })}`
             )
+            await closeWebSocket()
             reject(new Error(resp?.message || 'execPodStep failed'))
           }
         }
       )
-      .then(ws => {
+      .then(websocket => {
         core.info('[execPodStep] exec.exec resolved, ws object received')
+        ws = websocket
         // Start heartbeat once WebSocket is connected
         if (ws) {
           startHeartbeat(ws)
@@ -454,9 +473,18 @@ export async function execPodStep(
           core.warning('[Heartbeat] WebSocket is null, heartbeat not started')
         }
       })
-      .catch(e => {
+      .catch(async e => {
         stopHeartbeat()
         core.error(`[execPodStep] exec.exec threw error: ${e}`)
+
+        // Close WebSocket before rejecting
+        if (ws && (ws.readyState === 1 || ws.readyState === 0)) {
+          await new Promise<void>(closeResolve => {
+            ws.once('close', () => closeResolve())
+            ws.close()
+          })
+        }
+
         reject(e)
       })
   })
