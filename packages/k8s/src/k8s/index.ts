@@ -343,8 +343,8 @@ export async function execPodStep(
     `[execPodStep] Heartbeat config: PING_PERIOD_MS=${PING_PERIOD_MS}, PING_READ_DEADLINE_MS=${PING_READ_DEADLINE_MS}`
   )
 
-  let pingInterval: ReturnType<typeof setInterval> | null = null
-  let pongTimeout: ReturnType<typeof setTimeout> | null = null
+  let pingInterval: NodeJS.Timeout | null = null
+  let pongTimeout: NodeJS.Timeout | null = null
 
   const stopHeartbeat = (): void => {
     core.info('[Heartbeat] stopHeartbeat called')
@@ -362,6 +362,7 @@ export async function execPodStep(
     core.info('[Heartbeat] resetPongTimeout called')
     if (pongTimeout) {
       clearTimeout(pongTimeout)
+      pongTimeout = null
     }
     pongTimeout = setTimeout(() => {
       core.warning(
