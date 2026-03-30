@@ -27,6 +27,22 @@ describe('e2e', () => {
     await testHelper.cleanup()
   })
 
+  afterAll(async () => {
+    // Log active handles
+    if (process._getActiveHandles) {
+      console.log('Active handles:', process._getActiveHandles().length)
+    }
+    if (process._getActiveRequests) {
+      console.log('Active requests:', process._getActiveRequests().length)
+    }
+
+    // Force exit after a short delay
+    setTimeout(() => {
+      console.log('Forcing exit...')
+      process.exit(0)
+    }, 1000)
+  })
+
   it('should prepare job, run script step, run container step then cleanup without errors', async () => {
     await expect(
       prepareJob(prepareJobData.args, prepareJobOutputFilePath)
