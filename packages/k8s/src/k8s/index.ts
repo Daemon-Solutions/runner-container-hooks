@@ -248,7 +248,9 @@ export async function createJobPod(
     body: appPod
   })
 
-  core.debug(`[createJobPod] Pod created successfully: ${result.metadata?.name}`)
+  core.debug(
+    `[createJobPod] Pod created successfully: ${result.metadata?.name}`
+  )
   core.debug(`[createJobPod] Pod UID: ${result.metadata?.uid}`)
 
   return result
