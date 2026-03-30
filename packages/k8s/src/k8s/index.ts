@@ -642,6 +642,8 @@ export async function execCpToPod(
       const execPromise = new Promise((resolve, reject) => {
         core.info(`[execCpToPod] About to call exec.exec()`)
 
+        let callbackFired = false
+
         exec
           .exec(
             namespace(),
@@ -653,6 +655,7 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
+              callbackFired = true
               core.info(`[execCpToPod] Exec callback invoked`)
               core.info(
                 `[execCpToPod] Exec completed with status: ${JSON.stringify(status)}`
@@ -688,21 +691,20 @@ export async function execCpToPod(
                   `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
                 )
 
-                // If WebSocket closes normally (code 1000) and no errors, resolve
-                if (code === 1000 && errStream.size() === 0) {
+                // If WebSocket closes normally and callback hasn't fired, resolve immediately
+                if (code === 1000 && !callbackFired && errStream.size() === 0) {
                   core.info(
-                    `[execCpToPod] WebSocket closed normally, resolving promise`
+                    `[execCpToPod] WebSocket closed normally without callback, resolving immediately`
                   )
-                  // Give callback a moment to fire, then resolve if it hasn't
-                  setTimeout(() => {
-                    resolve({ status: 'Success' })
-                  }, 1000)
+                  resolve({ status: 'Success' })
                 }
               })
 
               ws.on('error', (err: Error) => {
                 core.error(`[execCpToPod] WebSocket error: ${err.message}`)
-                reject(err)
+                if (!callbackFired) {
+                  reject(err)
+                }
               })
             }
           })
@@ -713,7 +715,9 @@ export async function execCpToPod(
             core.error(`[execCpToPod] Error stack: ${e?.stack}`)
             core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
             core.error(`[execCpToPod] exec.exec() promise rejected: ${e}`)
-            reject(e)
+            if (!callbackFired) {
+              reject(e)
+            }
           })
       })
 
