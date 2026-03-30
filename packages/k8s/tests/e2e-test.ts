@@ -27,17 +27,6 @@ describe('e2e', () => {
     await testHelper.cleanup()
   })
 
-  afterAll(async () => {
-    // Give Jest 5 seconds to finish reporting
-    await new Promise(resolve => setTimeout(resolve, 5000))
-
-    // Check if we're still hanging
-    if (process._getActiveHandles && process._getActiveHandles().length > 0) {
-      console.log('Active handles still present, forcing exit...')
-      process.exit(0)
-    }
-  })
-
   it('should prepare job, run script step, run container step then cleanup without errors', async () => {
     await expect(
       prepareJob(prepareJobData.args, prepareJobOutputFilePath)
