@@ -31,7 +31,7 @@ jest.mock('@kubernetes/client-node', () => {
 
 jest.mock('tar-fs', () => ({
   default: {
-    pack: jest.fn().mockReturnValue({ pipe: jest.fn() }),
+    pack: jest.fn().mockReturnValue({ on: jest.fn(), pipe: jest.fn() }),
     extract: jest.fn().mockReturnValue({
       on: jest.fn(),
       pipe: jest.fn()
