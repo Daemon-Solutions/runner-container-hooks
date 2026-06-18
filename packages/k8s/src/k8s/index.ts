@@ -482,7 +482,8 @@ export async function execCpToPod(
       const command = [
         'sh',
         '-c',
-        `tar xf - --no-same-owner -C ${shlex.quote(containerPath)} 2>/dev/null; ` +
+        `mkdir -p ${shlex.quote(containerPath)} && ` +
+          `tar xf - --no-same-owner -C ${shlex.quote(containerPath)} 2>/dev/null && ` +
           `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
       ]
