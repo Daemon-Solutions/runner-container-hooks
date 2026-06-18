@@ -489,6 +489,9 @@ export async function execCpToPod(
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
       await new Promise((resolve, reject) => {
+        readStream.on('error', err =>
+          reject(new Error(`tar stream error during copy to pod: ${err.message}`))
+        )
         exec
           .exec(
             namespace(),
