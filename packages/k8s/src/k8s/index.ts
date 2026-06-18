@@ -504,14 +504,14 @@ export async function execCpToPod(
             errStream,
             readStream,
             false,
-            async status => {
-              if (status.status !== 'Success') {
+            status => {
+              if (!status || status.status !== 'Success') {
                 const details = errStream.size()
                   ? errStream.getContentsAsString()
                   : '(no stderr)'
                 reject(
                   new Error(
-                    `Error from execCpToPod - status: ${status.status}, details: \n ${details}`
+                    `Error from execCpToPod - status: ${status?.status ?? 'null'}, details: \n ${details}`
                   )
                 )
                 return

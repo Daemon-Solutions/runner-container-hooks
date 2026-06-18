@@ -53,4 +53,11 @@ async function run(): Promise<void> {
   }
 }
 
+process.on('unhandledRejection', (reason: unknown) => {
+  core.error(
+    `Unhandled promise rejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`
+  )
+  process.exit(1)
+})
+
 void run()
