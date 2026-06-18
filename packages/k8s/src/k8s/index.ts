@@ -500,12 +500,16 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
-              if (errStream.size()) {
+              if (status.status !== 'Success') {
+                const details = errStream.size()
+                  ? errStream.getContentsAsString()
+                  : '(no stderr)'
                 reject(
                   new Error(
-                    `Error from execCpToPod - status: ${status.status}, details: \n ${errStream.getContentsAsString()}`
+                    `Error from execCpToPod - status: ${status.status}, details: \n ${details}`
                   )
                 )
+                return
               }
               resolve(status)
             }
