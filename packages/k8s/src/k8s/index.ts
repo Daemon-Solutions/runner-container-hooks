@@ -473,6 +473,22 @@ export async function execCpToPod(
 ): Promise<void> {
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
 
+  let localEntries = '(unavailable)'
+  try {
+    localEntries = await localCalculateOutputHashSorted([
+      'sh',
+      '-c',
+      listDirAllCommand(runnerPath)
+    ])
+    core.debug(
+      `execCpToPod: local directory hash for ${runnerPath}: ${localEntries}`
+    )
+  } catch (error) {
+    core.debug(
+      `execCpToPod: failed to calculate local hash for ${runnerPath}: ${formatError(error)}`
+    )
+  }
+
   let attempt = 0
   while (true) {
     try {
@@ -482,11 +498,17 @@ export async function execCpToPod(
       const command = [
         'sh',
         '-c',
-        `mkdir -p ${shlex.quote(containerPath)} && ` +
-          `tar xf - --no-same-owner -C ${shlex.quote(containerPath)} 2>/dev/null && ` +
-          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
-          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
+        `set -eux; ` +
+          `mkdir -p ${shlex.quote(containerPath)}; ` +
+          `ls -ld ${shlex.quote(containerPath)}; ` +
+          `tar xf - --no-same-owner -C ${shlex.quote(containerPath)}; ` +
+          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\;; ` +
+          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\;; ` +
+          `echo '__RUNNER_CP_TO_POD_DONE__'`
       ]
+      core.debug(
+        `execCpToPod: attempt ${attempt + 1}, remote command=${JSON.stringify(command)}`
+      )
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
       await new Promise((resolve, reject) => {
@@ -501,11 +523,14 @@ export async function execCpToPod(
             podName,
             JOB_CONTAINER_NAME,
             command,
-            null,
+            process.stdout,
             errStream,
             readStream,
             false,
             status => {
+              core.debug(
+                `execCpToPod: exec status for attempt ${attempt + 1}: ${JSON.stringify(status)}`
+              )
               if (!status || status.status !== 'Success') {
                 const details = errStream.size()
                   ? errStream.getContentsAsString()
@@ -517,14 +542,22 @@ export async function execCpToPod(
                 )
                 return
               }
+              if (errStream.size()) {
+                core.debug(
+                  `execCpToPod: stderr for attempt ${attempt + 1}: ${errStream.getContentsAsString()}`
+                )
+              }
               resolve(status)
             }
           )
           .catch(e => reject(e))
       })
+      core.debug(`execCpToPod: copy phase succeeded on attempt ${attempt + 1}`)
       break
     } catch (error) {
-      core.debug(`cpToPod: Attempt ${attempt + 1} failed: ${error}`)
+      core.debug(
+        `cpToPod: Attempt ${attempt + 1} failed for ${runnerPath} -> ${containerPath}: ${formatError(error)}`
+      )
       attempt++
       if (attempt >= 30) {
         throw new Error(
@@ -539,16 +572,23 @@ export async function execCpToPod(
   const delay = 1000
   for (let i = 0; i < attempts; i++) {
     try {
-      const want = await localCalculateOutputHashSorted([
-        'sh',
-        '-c',
-        listDirAllCommand(runnerPath)
-      ])
+      const want =
+        localEntries !== '(unavailable)'
+          ? localEntries
+          : await localCalculateOutputHashSorted([
+              'sh',
+              '-c',
+              listDirAllCommand(runnerPath)
+            ])
 
       const got = await execCalculateOutputHashSorted(
         podName,
         JOB_CONTAINER_NAME,
         ['sh', '-c', listDirAllCommand(containerPath)]
+      )
+
+      core.debug(
+        `execCpToPod: verification attempt ${i + 1}, want='${want}' got='${got}'`
       )
 
       if (got !== want) {
@@ -559,9 +599,12 @@ export async function execCpToPod(
         continue
       }
 
+      core.debug(`execCpToPod: verification succeeded on attempt ${i + 1}`)
       break
     } catch (error) {
-      core.debug(`Attempt ${i + 1} failed: ${error}`)
+      core.debug(
+        `execCpToPod: verification attempt ${i + 1} failed: ${formatError(error)}`
+      )
       await sleep(delay)
     }
   }
