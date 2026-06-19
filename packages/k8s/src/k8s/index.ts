@@ -498,17 +498,23 @@ export async function execCpToPod(
       const command = [
         'sh',
         '-c',
-        `set -eux; ` +
+        `set -ux; ` +
           `tmp_dir=${shlex.quote(path.posix.join(containerPath, '.runner-tmp-copy'))}; ` +
           `mkdir -p ${shlex.quote(containerPath)}; ` +
           `rm -rf "$tmp_dir"; ` +
           `mkdir -p "$tmp_dir"; ` +
           `ls -ld ${shlex.quote(containerPath)} "$tmp_dir"; ` +
-          `tar xf - -m -o --no-same-permissions --exclude='.' -C "$tmp_dir"; ` +
-          `tar -C "$tmp_dir" -cf - . | tar -C ${shlex.quote(containerPath)} -xf - -m -o --no-same-permissions --exclude='.'; ` +
+          `if ! tar xf - -m -o --no-same-permissions --exclude='.' -C "$tmp_dir"; then ` +
+          `  echo 'execCpToPod: failed to extract incoming tar stream into temp dir' >&2; ` +
+          `  exit 1; ` +
+          `fi; ` +
+          `if ! tar -C "$tmp_dir" -cf - . | tar -C ${shlex.quote(containerPath)} -xf - -m -o --no-same-permissions --exclude='.'; then ` +
+          `  echo 'execCpToPod: failed to move temp dir contents into destination dir' >&2; ` +
+          `  exit 1; ` +
+          `fi; ` +
           `rm -rf "$tmp_dir"; ` +
-          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
-          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null; ` +
+          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null || true; ` +
+          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null || true; ` +
           `echo '__RUNNER_CP_TO_POD_DONE__'`
       ]
       core.debug(
