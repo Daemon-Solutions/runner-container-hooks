@@ -344,7 +344,8 @@ export async function execPodStep(
       })
       .catch(async e => {
         heartbeat.stop()
-        core.error(`[execPodStep] exec.exec threw error: ${e}`)
+        const message = formatError(e)
+        core.error(`[execPodStep] exec.exec threw error: ${message}`)
 
         // Close WebSocket before rejecting with timeout protection
         const socket = ws
@@ -365,7 +366,7 @@ export async function execPodStep(
           })
         }
 
-        reject(e)
+        reject(new Error(`[execPodStep] exec.exec threw error: ${message}`))
       })
   })
 }
