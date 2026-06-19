@@ -505,8 +505,8 @@ export async function execCpToPod(
           `mkdir -p "$tmp_dir"; ` +
           `ls -ld ${shlex.quote(containerPath)} "$tmp_dir"; ` +
           `tar xf - -m -o --no-same-permissions --exclude='.' -C "$tmp_dir"; ` +
-          `find "$tmp_dir" -mindepth 1 -maxdepth 1 -exec mv {} ${shlex.quote(containerPath)}/ \\; ; ` +
-          `rmdir "$tmp_dir"; ` +
+          `cp -a "$tmp_dir/." ${shlex.quote(containerPath)}/; ` +
+          `rm -rf "$tmp_dir"; ` +
           `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\;; ` +
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\;; ` +
           `echo '__RUNNER_CP_TO_POD_DONE__'`
