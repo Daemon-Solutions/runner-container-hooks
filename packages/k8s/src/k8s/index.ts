@@ -502,7 +502,7 @@ export async function execCpToPod(
         `set -ux; ` +
           `mkdir -p ${shlex.quote(containerPath)}; ` +
           `ls -ld ${shlex.quote(containerPath)}; ` +
-          `if ! tar xf - --no-same-owner --no-same-permissions -C ${shlex.quote(containerPath)} 2>/dev/null; then ` +
+          `if ! tar xf - --no-same-owner -C ${shlex.quote(containerPath)}; then ` +
           `  echo 'execCpToPod: failed to extract incoming tar stream into destination dir' >&2; ` +
           `  exit 1; ` +
           `fi; ` +
