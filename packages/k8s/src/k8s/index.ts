@@ -514,7 +514,10 @@ export async function execCpToPod(
       )
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
-      const EXEC_TIMEOUT_MS = 60_000
+      const EXEC_TIMEOUT_MS = parsePositiveMsEnv(
+        process.env.ACTIONS_RUNNER_EXEC_CP_TIMEOUT_MS,
+        300_000
+      )
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           const captured = errStream.size()
