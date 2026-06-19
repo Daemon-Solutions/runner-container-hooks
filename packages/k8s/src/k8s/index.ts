@@ -524,11 +524,20 @@ export async function execCpToPod(
       core.debug(
         `execCpToPod: attempt ${attempt + 1}, using exec timeout ${EXEC_TIMEOUT_MS}ms`
       )
+      let localTarStreamEnded = false
+      let localTarStreamClosed = false
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           const captured = errStream.size()
             ? errStream.getContentsAsString()
             : '(no stderr yet)'
+          if (localTarStreamEnded || localTarStreamClosed) {
+            core.debug(
+              `execCpToPod: timed out after local tar stream completed on attempt ${attempt + 1}; deferring to verification phase. stderr so far: ${captured}`
+            )
+            resolve(undefined)
+            return
+          }
           reject(
             new Error(
               `execCpToPod: timed out after ${EXEC_TIMEOUT_MS}ms waiting for exec status callback (attempt ${attempt + 1}). stderr so far: ${captured}`
@@ -543,11 +552,13 @@ export async function execCpToPod(
           )
         })
         readStream.on('end', () => {
+          localTarStreamEnded = true
           core.debug(
             `execCpToPod: local tar stream ended for attempt ${attempt + 1}`
           )
         })
         readStream.on('close', () => {
+          localTarStreamClosed = true
           core.debug(
             `execCpToPod: local tar stream closed for attempt ${attempt + 1}`
           )
@@ -591,7 +602,7 @@ export async function execCpToPod(
             reject(e)
           })
       })
-      core.debug(`execCpToPod: copy phase succeeded on attempt ${attempt + 1}`)
+      core.debug(`execCpToPod: copy phase completed on attempt ${attempt + 1}`)
       break
     } catch (error) {
       core.debug(
