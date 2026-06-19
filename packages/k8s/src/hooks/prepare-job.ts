@@ -132,7 +132,9 @@ export async function prepareJob(
       new Set([PodPhase.PENDING]),
       getPrepareJobTimeoutSeconds()
     )
-    core.debug(`prepareJob: pod ${createdPod.metadata.name} reached RUNNING phase`)
+    core.debug(
+      `prepareJob: pod ${createdPod.metadata.name} reached RUNNING phase`
+    )
   } catch (err) {
     await prunePods()
     throw new Error(`pod failed to come online with error: ${formatError(err)}`)
@@ -155,7 +157,9 @@ export async function prepareJob(
       createdPod.metadata.name,
       JOB_CONTAINER_NAME
     )
-    core.debug(`prepareJob: prepare script completed for pod ${createdPod.metadata.name}`)
+    core.debug(
+      `prepareJob: prepare script completed for pod ${createdPod.metadata.name}`
+    )
 
     const promises: Promise<void>[] = []
     for (const vol of args?.container?.userMountVolumes || []) {
