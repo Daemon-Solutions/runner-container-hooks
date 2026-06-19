@@ -513,10 +513,16 @@ export async function execCpToPod(
         `execCpToPod: attempt ${attempt + 1}, remote command=${JSON.stringify(command)}`
       )
       const readStream = tar.pack(runnerPath)
+      core.debug(
+        `execCpToPod: attempt ${attempt + 1}, streaming local path '${runnerPath}' to pod '${podName}' destination '${containerPath}'`
+      )
       const errStream = new WritableStreamBuffer()
       const EXEC_TIMEOUT_MS = parsePositiveMsEnv(
         process.env.ACTIONS_RUNNER_EXEC_CP_TIMEOUT_MS,
         300_000
+      )
+      core.debug(
+        `execCpToPod: attempt ${attempt + 1}, using exec timeout ${EXEC_TIMEOUT_MS}ms`
       )
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -534,6 +540,16 @@ export async function execCpToPod(
           clearTimeout(timer)
           reject(
             new Error(`tar stream error during copy to pod: ${err.message}`)
+          )
+        })
+        readStream.on('end', () => {
+          core.debug(
+            `execCpToPod: local tar stream ended for attempt ${attempt + 1}`
+          )
+        })
+        readStream.on('close', () => {
+          core.debug(
+            `execCpToPod: local tar stream closed for attempt ${attempt + 1}`
           )
         })
         exec

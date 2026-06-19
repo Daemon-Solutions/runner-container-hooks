@@ -113,7 +113,12 @@ export async function prepareJob(
     `Job pod created, waiting for it to come online ${createdPod?.metadata?.name}`
   )
 
-  const runnerWorkspace = dirname(process.env.RUNNER_WORKSPACE as string)
+  const runnerWorkspaceEnv = process.env.RUNNER_WORKSPACE as string
+  const runnerWorkspace = dirname(runnerWorkspaceEnv)
+  const githubWorkspaceEnv = process.env.GITHUB_WORKSPACE as string
+  core.debug(
+    `prepareJob: env RUNNER_WORKSPACE='${runnerWorkspaceEnv}', GITHUB_WORKSPACE='${githubWorkspaceEnv}', derived runnerWorkspace='${runnerWorkspace}'`
+  )
 
   let prepareScript: { containerPath: string; runnerPath: string } | undefined
   if (args.container?.userMountVolumes?.length) {
@@ -127,22 +132,36 @@ export async function prepareJob(
       new Set([PodPhase.PENDING]),
       getPrepareJobTimeoutSeconds()
     )
+    core.debug(`prepareJob: pod ${createdPod.metadata.name} reached RUNNING phase`)
   } catch (err) {
     await prunePods()
     throw new Error(`pod failed to come online with error: ${formatError(err)}`)
   }
 
+  core.debug(
+    `prepareJob: starting workspace copy from ${runnerWorkspace} to pod ${createdPod.metadata.name}:/__w`
+  )
   await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
+  core.debug(
+    `prepareJob: workspace copy completed for pod ${createdPod.metadata.name}`
+  )
 
   if (prepareScript) {
+    core.debug(
+      `prepareJob: running prepare script ${prepareScript.containerPath} in pod ${createdPod.metadata.name}`
+    )
     await execPodStep(
       ['sh', '-e', prepareScript.containerPath],
       createdPod.metadata.name,
       JOB_CONTAINER_NAME
     )
+    core.debug(`prepareJob: prepare script completed for pod ${createdPod.metadata.name}`)
 
     const promises: Promise<void>[] = []
     for (const vol of args?.container?.userMountVolumes || []) {
+      core.debug(
+        `prepareJob: copying user mount volume ${vol.sourceVolumePath} -> ${vol.targetVolumePath} in pod ${createdPod.metadata.name}`
+      )
       promises.push(
         execCpToPod(
           createdPod.metadata.name,
@@ -152,12 +171,18 @@ export async function prepareJob(
       )
     }
     await Promise.all(promises)
+    core.debug(
+      `prepareJob: completed user mount volume copies for pod ${createdPod.metadata.name}`
+    )
   }
 
   core.debug('Job pod is ready for traffic')
 
   let isAlpine = false
   try {
+    core.debug(
+      `prepareJob: determining alpine status for pod ${createdPod.metadata.name}, container ${JOB_CONTAINER_NAME}`
+    )
     isAlpine = await isPodContainerAlpine(
       createdPod.metadata.name,
       JOB_CONTAINER_NAME
@@ -168,7 +193,9 @@ export async function prepareJob(
     throw new Error(`failed to determine if the pod is alpine: ${message}`)
   }
   core.debug(`Setting isAlpine to ${isAlpine}`)
+  core.debug(`prepareJob: writing response file ${responseFile}`)
   generateResponseFile(responseFile, args, createdPod, isAlpine, serviceNames)
+  core.debug(`prepareJob: response file written ${responseFile}`)
 }
 
 function generateResponseFile(
