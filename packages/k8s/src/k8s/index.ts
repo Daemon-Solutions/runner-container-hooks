@@ -573,7 +573,9 @@ export async function execCpToPod(
         )
 
         readStream.on('error', err => {
-          settleReject(new Error(`tar stream error during copy to pod: ${err.message}`))
+          settleReject(
+            new Error(`tar stream error during copy to pod: ${err.message}`)
+          )
         })
         readStream.on('end', () => {
           localTarStreamEnded = true
