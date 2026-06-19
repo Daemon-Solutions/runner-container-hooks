@@ -526,30 +526,54 @@ export async function execCpToPod(
       )
       let localTarStreamEnded = false
       let localTarStreamClosed = false
+      let settled = false
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const POST_STREAM_GRACE_MS = 10_000
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const captured = errStream.size()
-            ? errStream.getContentsAsString()
-            : '(no stderr yet)'
-          if (localTarStreamEnded || localTarStreamClosed) {
-            core.debug(
-              `execCpToPod: timed out after local tar stream completed on attempt ${attempt + 1}; deferring to verification phase. stderr so far: ${captured}`
-            )
-            resolve(undefined)
+        const settleResolve = (value?: unknown): void => {
+          if (settled) {
             return
           }
-          reject(
-            new Error(
-              `execCpToPod: timed out after ${EXEC_TIMEOUT_MS}ms waiting for exec status callback (attempt ${attempt + 1}). stderr so far: ${captured}`
+          settled = true
+          if (timer) {
+            clearTimeout(timer)
+          }
+          resolve(value)
+        }
+
+        const settleReject = (error: Error): void => {
+          if (settled) {
+            return
+          }
+          settled = true
+          if (timer) {
+            clearTimeout(timer)
+          }
+          reject(error)
+        }
+
+        const armTimer = (timeoutMs: number, reason: string): void => {
+          if (timer) {
+            clearTimeout(timer)
+          }
+          timer = setTimeout(() => {
+            const captured = errStream.size()
+              ? errStream.getContentsAsString()
+              : '(no stderr yet)'
+            core.debug(
+              `execCpToPod: ${reason} on attempt ${attempt + 1}. stderr so far: ${captured}`
             )
-          )
-        }, EXEC_TIMEOUT_MS)
+            settleResolve(undefined)
+          }, timeoutMs)
+        }
+
+        armTimer(
+          EXEC_TIMEOUT_MS,
+          `timed out after ${EXEC_TIMEOUT_MS}ms waiting for exec status callback`
+        )
 
         readStream.on('error', err => {
-          clearTimeout(timer)
-          reject(
-            new Error(`tar stream error during copy to pod: ${err.message}`)
-          )
+          settleReject(new Error(`tar stream error during copy to pod: ${err.message}`))
         })
         readStream.on('end', () => {
           localTarStreamEnded = true
@@ -561,6 +585,10 @@ export async function execCpToPod(
           localTarStreamClosed = true
           core.debug(
             `execCpToPod: local tar stream closed for attempt ${attempt + 1}`
+          )
+          armTimer(
+            POST_STREAM_GRACE_MS,
+            `post-stream grace period (${POST_STREAM_GRACE_MS}ms) expired waiting for exec status callback after local tar stream completion`
           )
         })
         exec
@@ -574,7 +602,6 @@ export async function execCpToPod(
             readStream,
             false,
             status => {
-              clearTimeout(timer)
               core.debug(
                 `execCpToPod: exec status for attempt ${attempt + 1}: ${JSON.stringify(status)}`
               )
@@ -582,7 +609,7 @@ export async function execCpToPod(
                 const details = errStream.size()
                   ? errStream.getContentsAsString()
                   : '(no stderr)'
-                reject(
+                settleReject(
                   new Error(
                     `Error from execCpToPod - status: ${status?.status ?? 'null'}, details: \\n ${details}`
                   )
@@ -594,12 +621,11 @@ export async function execCpToPod(
                   `execCpToPod: stderr for attempt ${attempt + 1}: ${errStream.getContentsAsString()}`
                 )
               }
-              resolve(status)
+              settleResolve(status)
             }
           )
           .catch(e => {
-            clearTimeout(timer)
-            reject(e)
+            settleReject(e)
           })
       })
       core.debug(`execCpToPod: copy phase completed on attempt ${attempt + 1}`)
