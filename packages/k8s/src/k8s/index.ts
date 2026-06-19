@@ -505,10 +505,10 @@ export async function execCpToPod(
           `mkdir -p "$tmp_dir"; ` +
           `ls -ld ${shlex.quote(containerPath)} "$tmp_dir"; ` +
           `tar xf - -m -o --no-same-permissions --exclude='.' -C "$tmp_dir"; ` +
-          `tar -C "$tmp_dir" -cf - . | tar -C ${shlex.quote(containerPath)} -xf - -m -o --no-same-permissions; ` +
+          `tar -C "$tmp_dir" -cf - . | tar -C ${shlex.quote(containerPath)} -xf - -m -o --no-same-permissions --exclude='.'; ` +
           `rm -rf "$tmp_dir"; ` +
-          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\;; ` +
-          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\;; ` +
+          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
+          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null; ` +
           `echo '__RUNNER_CP_TO_POD_DONE__'`
       ]
       core.debug(
