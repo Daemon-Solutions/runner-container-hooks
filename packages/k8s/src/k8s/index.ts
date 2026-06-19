@@ -505,7 +505,7 @@ export async function execCpToPod(
           `mkdir -p "$tmp_dir"; ` +
           `ls -ld ${shlex.quote(containerPath)} "$tmp_dir"; ` +
           `tar xf - -m -o --no-same-permissions --exclude='.' -C "$tmp_dir"; ` +
-          `cp -r "$tmp_dir/." ${shlex.quote(containerPath)}/; ` +
+          `tar -C "$tmp_dir" -cf - . | tar -C ${shlex.quote(containerPath)} -xf - -m -o --no-same-permissions; ` +
           `rm -rf "$tmp_dir"; ` +
           `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\;; ` +
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\;; ` +
@@ -516,12 +516,25 @@ export async function execCpToPod(
       )
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
+      const EXEC_TIMEOUT_MS = 60_000
       await new Promise((resolve, reject) => {
-        readStream.on('error', err =>
+        const timer = setTimeout(() => {
+          const captured = errStream.size()
+            ? errStream.getContentsAsString()
+            : '(no stderr yet)'
+          reject(
+            new Error(
+              `execCpToPod: timed out after ${EXEC_TIMEOUT_MS}ms waiting for exec status callback (attempt ${attempt + 1}). stderr so far: ${captured}`
+            )
+          )
+        }, EXEC_TIMEOUT_MS)
+
+        readStream.on('error', err => {
+          clearTimeout(timer)
           reject(
             new Error(`tar stream error during copy to pod: ${err.message}`)
           )
-        )
+        })
         exec
           .exec(
             namespace(),
@@ -533,6 +546,7 @@ export async function execCpToPod(
             readStream,
             false,
             status => {
+              clearTimeout(timer)
               core.debug(
                 `execCpToPod: exec status for attempt ${attempt + 1}: ${JSON.stringify(status)}`
               )
@@ -542,7 +556,7 @@ export async function execCpToPod(
                   : '(no stderr)'
                 reject(
                   new Error(
-                    `Error from execCpToPod - status: ${status?.status ?? 'null'}, details: \n ${details}`
+                    `Error from execCpToPod - status: ${status?.status ?? 'null'}, details: \\n ${details}`
                   )
                 )
                 return
@@ -555,7 +569,10 @@ export async function execCpToPod(
               resolve(status)
             }
           )
-          .catch(e => reject(e))
+          .catch(e => {
+            clearTimeout(timer)
+            reject(e)
+          })
       })
       core.debug(`execCpToPod: copy phase succeeded on attempt ${attempt + 1}`)
       break
