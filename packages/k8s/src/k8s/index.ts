@@ -524,8 +524,6 @@ export async function execCpToPod(
       core.debug(
         `execCpToPod: attempt ${attempt + 1}, using exec timeout ${EXEC_TIMEOUT_MS}ms`
       )
-      let localTarStreamEnded = false
-      let localTarStreamClosed = false
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
       const POST_STREAM_GRACE_MS = 10_000
@@ -584,7 +582,6 @@ export async function execCpToPod(
           )
         })
         readStream.on('close', () => {
-          localTarStreamClosed = true
           core.debug(
             `execCpToPod: local tar stream closed for attempt ${attempt + 1}`
           )
