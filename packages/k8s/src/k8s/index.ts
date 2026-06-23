@@ -390,7 +390,22 @@ export async function execCalculateOutputHashSorted(
     }
   })
 
+  const DEFAULT_PING_PERIOD_MS = 5000
+  const pingPeriodMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS,
+    DEFAULT_PING_PERIOD_MS
+  )
+  const pongDeadlineMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS,
+    pingPeriodMs * 12 + 1000
+  )
+  const heartbeat = new WebSocketHeartbeat(pingPeriodMs, pongDeadlineMs)
+
   await new Promise<void>((resolve, reject) => {
+    const settle = (fn: () => void): void => {
+      heartbeat.stop()
+      fn()
+    }
     exec
       .exec(
         namespace(),
@@ -404,7 +419,7 @@ export async function execCalculateOutputHashSorted(
         resp => {
           core.debug(`internalExecOutput response: ${JSON.stringify(resp)}`)
           if (resp.status === 'Success') {
-            resolve()
+            settle(resolve)
           } else {
             core.debug(
               JSON.stringify({
@@ -412,11 +427,21 @@ export async function execCalculateOutputHashSorted(
                 details: resp?.details
               })
             )
-            reject(new Error(resp?.message || 'internalExecOutput failed'))
+            settle(() =>
+              reject(new Error(resp?.message || 'internalExecOutput failed'))
+            )
           }
         }
       )
-      .catch(e => reject(e))
+      .then(ws => {
+        if (ws) {
+          heartbeat.start(ws, err => settle(() => reject(err)))
+        }
+      })
+      .catch(e => {
+        heartbeat.stop()
+        reject(e)
+      })
   })
 
   outputWriter.end()
@@ -524,6 +549,20 @@ export async function execCpToPod(
       core.debug(
         `execCpToPod: attempt ${attempt + 1}, using exec timeout ${EXEC_TIMEOUT_MS}ms`
       )
+      const DEFAULT_PING_PERIOD_MS = 5000
+      const pingPeriodMs = parsePositiveMsEnv(
+        process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS,
+        DEFAULT_PING_PERIOD_MS
+      )
+      const pongDeadlineMs = parsePositiveMsEnv(
+        process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS,
+        pingPeriodMs * 12 + 1000
+      )
+      core.debug(
+        `execCpToPod: attempt ${attempt + 1}, heartbeat config: pingPeriodMs=${pingPeriodMs}, pongDeadlineMs=${pongDeadlineMs}`
+      )
+      const heartbeat = new WebSocketHeartbeat(pingPeriodMs, pongDeadlineMs)
+
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
       const POST_STREAM_GRACE_MS = 10_000
@@ -533,6 +572,7 @@ export async function execCpToPod(
             return
           }
           settled = true
+          heartbeat.stop()
           if (timer) {
             clearTimeout(timer)
           }
@@ -544,6 +584,7 @@ export async function execCpToPod(
             return
           }
           settled = true
+          heartbeat.stop()
           if (timer) {
             clearTimeout(timer)
           }
@@ -622,6 +663,15 @@ export async function execCpToPod(
               settleResolve(status)
             }
           )
+          .then(ws => {
+            if (ws) {
+              heartbeat.start(ws, settleReject)
+            } else {
+              core.debug(
+                `execCpToPod: exec.exec returned no WebSocket on attempt ${attempt + 1}, heartbeat not started`
+              )
+            }
+          })
           .catch(e => {
             settleReject(e)
           })
@@ -713,7 +763,26 @@ export async function execCpFromPod(
       const writerStream = tar.extract(parentRunnerPath)
       const errStream = new WritableStreamBuffer()
 
+      const DEFAULT_PING_PERIOD_MS = 5000
+      const pingPeriodMs = parsePositiveMsEnv(
+        process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS,
+        DEFAULT_PING_PERIOD_MS
+      )
+      const pongDeadlineMs = parsePositiveMsEnv(
+        process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS,
+        pingPeriodMs * 12 + 1000
+      )
+      const heartbeat = new WebSocketHeartbeat(pingPeriodMs, pongDeadlineMs)
+
       await new Promise((resolve, reject) => {
+        const settleResolve = (value?: unknown): void => {
+          heartbeat.stop()
+          resolve(value)
+        }
+        const settleReject = (err: Error): void => {
+          heartbeat.stop()
+          reject(err)
+        }
         exec
           .exec(
             namespace(),
@@ -726,16 +795,22 @@ export async function execCpFromPod(
             false,
             async status => {
               if (errStream.size()) {
-                reject(
+                settleReject(
                   new Error(
-                    `Error from cpFromPod - details: \n ${errStream.getContentsAsString()}`
+                    `Error from cpFromPod - details: \\n ${errStream.getContentsAsString()}`
                   )
                 )
+                return
               }
-              resolve(status)
+              settleResolve(status)
             }
           )
-          .catch(e => reject(e))
+          .then(ws => {
+            if (ws) {
+              heartbeat.start(ws, settleReject)
+            }
+          })
+          .catch(e => settleReject(e))
       })
       break
     } catch (error) {
