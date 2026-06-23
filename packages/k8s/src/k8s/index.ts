@@ -579,6 +579,7 @@ export async function execCpToPod(
 
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
+      let keepWebSocketOpenUntilStatus = false
       const POST_STREAM_GRACE_MS = 10_000
       await new Promise((resolve, reject) => {
         const settleResolve = (value?: unknown): void => {
@@ -639,6 +640,12 @@ export async function execCpToPod(
           core.debug(
             `execCpToPod: local tar stream closed for attempt ${attempt + 1}`
           )
+          if (keepWebSocketOpenUntilStatus) {
+            core.debug(
+              `execCpToPod: stdin-close is being intercepted on attempt ${attempt + 1}; waiting for status callback instead of arming post-stream grace timer`
+            )
+            return
+          }
           armTimer(
             POST_STREAM_GRACE_MS,
             `post-stream grace period (${POST_STREAM_GRACE_MS}ms) expired waiting for exec status callback after local tar stream completion`
@@ -683,6 +690,7 @@ export async function execCpToPod(
                 `execCpToPod: WebSocket protocol negotiated on attempt ${attempt + 1}: '${ws.protocol}'`
               )
               if (ws.protocol !== 'v5.channel.k8s.io') {
+                keepWebSocketOpenUntilStatus = true
                 // For protocols older than v5, the k8s client library calls
                 // ws.close() when stdin ends, killing the WebSocket before the
                 // status callback can arrive. Intercept close() to keep the
