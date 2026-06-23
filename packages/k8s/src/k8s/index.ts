@@ -680,8 +680,22 @@ export async function execCpToPod(
           .then(ws => {
             if (ws) {
               core.debug(
-                `execCpToPod: WebSocket protocol negotiated on attempt ${attempt + 1}: '${ws.protocol}' (v5.channel.k8s.io required for graceful stdin channel close)`
+                `execCpToPod: WebSocket protocol negotiated on attempt ${attempt + 1}: '${ws.protocol}'`
               )
+              if (ws.protocol !== 'v5.channel.k8s.io') {
+                // For protocols older than v5, the k8s client library calls
+                // ws.close() when stdin ends, killing the WebSocket before the
+                // status callback can arrive. Intercept close() to keep the
+                // connection alive until the status callback settles the Promise.
+                core.debug(
+                  `execCpToPod: protocol '${ws.protocol}' does not support graceful stdin channel close — intercepting ws.close() to prevent premature WebSocket termination`
+                )
+                ;(ws as any).close = () => {
+                  core.debug(
+                    `execCpToPod: ws.close() intercepted on attempt ${attempt + 1}, keeping WebSocket open for status callback`
+                  )
+                }
+              }
               heartbeat.start(ws, settleReject)
             } else {
               core.debug(
