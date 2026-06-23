@@ -537,7 +537,21 @@ export async function execCpToPod(
       core.debug(
         `execCpToPod: attempt ${attempt + 1}, remote command=${JSON.stringify(command)}`
       )
-      const readStream = tar.pack(runnerPath)
+      const tarStream = tar.pack(runnerPath)
+      // Wrap in a PassThrough that we control closing.
+      // tar on the pod exits when it reads the end-of-archive marker from
+      // the tar format itself — it does not need stdin EOF.  By keeping the
+      // stdin channel open until AFTER the status callback arrives we
+      // prevent @kubernetes/client-node from closing the entire WebSocket
+      // when the local tar data finishes, which would kill the extraction
+      // before the pod can send its status.
+      const readStream = new stream.PassThrough()
+      tarStream.pipe(readStream, { end: false })
+      tarStream.on('end', () => {
+        core.debug(
+          `execCpToPod: tar data fully sent on attempt ${attempt + 1}, keeping stdin channel open until status callback`
+        )
+      })
       core.debug(
         `execCpToPod: attempt ${attempt + 1}, streaming local path '${runnerPath}' to pod '${podName}' destination '${containerPath}'`
       )
