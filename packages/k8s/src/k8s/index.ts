@@ -627,6 +627,48 @@ export async function execCpToPod(
           })
       })
       core.debug(`execCpToPod: copy phase completed on attempt ${attempt + 1}`)
+
+      // Verification is inside the copy loop so a persistent hash mismatch
+      // triggers a full copy retry rather than silently continuing.
+      if (localEntries !== '(unavailable)') {
+        const verifyAttempts = 5
+        const verifyDelay = 1000
+        let verified = false
+        for (let i = 0; i < verifyAttempts; i++) {
+          try {
+            const got = await execCalculateOutputHashSorted(
+              podName,
+              JOB_CONTAINER_NAME,
+              ['sh', '-c', listDirAllCommand(containerPath)]
+            )
+            core.debug(
+              `execCpToPod: verification attempt ${i + 1}, want='${localEntries}' got='${got}'`
+            )
+            if (got === localEntries) {
+              core.debug(
+                `execCpToPod: verification succeeded on attempt ${i + 1}`
+              )
+              verified = true
+              break
+            }
+            core.debug(
+              `The hash of the directory does not match the expected value; want='${localEntries}' got='${got}'`
+            )
+            await sleep(verifyDelay)
+          } catch (error) {
+            core.debug(
+              `execCpToPod: verification attempt ${i + 1} failed: ${formatError(error)}`
+            )
+            await sleep(verifyDelay)
+          }
+        }
+        if (!verified) {
+          throw new Error(
+            `execCpToPod: directory hash mismatch after ${verifyAttempts} verification attempts — retrying copy`
+          )
+        }
+      }
+
       break
     } catch (error) {
       core.debug(
@@ -639,47 +681,6 @@ export async function execCpToPod(
         )
       }
       await sleep(1000)
-    }
-  }
-
-  let attempts = 15
-  const delay = 1000
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const want =
-        localEntries !== '(unavailable)'
-          ? localEntries
-          : await localCalculateOutputHashSorted([
-              'sh',
-              '-c',
-              listDirAllCommand(runnerPath)
-            ])
-
-      const got = await execCalculateOutputHashSorted(
-        podName,
-        JOB_CONTAINER_NAME,
-        ['sh', '-c', listDirAllCommand(containerPath)]
-      )
-
-      core.debug(
-        `execCpToPod: verification attempt ${i + 1}, want='${want}' got='${got}'`
-      )
-
-      if (got !== want) {
-        core.debug(
-          `The hash of the directory does not match the expected value; want='${want}' got='${got}'`
-        )
-        await sleep(delay)
-        continue
-      }
-
-      core.debug(`execCpToPod: verification succeeded on attempt ${i + 1}`)
-      break
-    } catch (error) {
-      core.debug(
-        `execCpToPod: verification attempt ${i + 1} failed: ${formatError(error)}`
-      )
-      await sleep(delay)
     }
   }
 }
