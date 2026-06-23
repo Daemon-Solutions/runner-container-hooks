@@ -576,7 +576,6 @@ export async function execCpToPod(
           )
         })
         readStream.on('end', () => {
-          localTarStreamEnded = true
           core.debug(
             `execCpToPod: local tar stream ended for attempt ${attempt + 1}`
           )
