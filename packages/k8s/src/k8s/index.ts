@@ -679,6 +679,9 @@ export async function execCpToPod(
           )
           .then(ws => {
             if (ws) {
+              core.debug(
+                `execCpToPod: WebSocket protocol negotiated on attempt ${attempt + 1}: '${ws.protocol}' (v5.channel.k8s.io required for graceful stdin channel close)`
+              )
               heartbeat.start(ws, settleReject)
             } else {
               core.debug(
