@@ -64,7 +64,7 @@ describe('Run container step', () => {
     delete process.env[ENV_HOOK_TEMPLATE_PATH]
   })
 
-  it('should shold have env variables available', async () => {
+  it('should have env variables available', async () => {
     runContainerStepData.args.entryPoint = 'bash'
     runContainerStepData.args.entryPointArgs = [
       '-c',

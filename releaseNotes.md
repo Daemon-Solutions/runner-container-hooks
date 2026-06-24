@@ -1,21 +1,23 @@
-<!-- ## Features -->
+# v0.9.0 Release Notes
 
-## Bugs
+## Features
 
-- Change command to remove sudo to fix fs-init initial container [#263]
-- Sort 'find' output before hashing for consistency [#267]
-- feat: check if required binaries are present [#272]
-- Allow non-root container [#264]
-- Improve validation checks after copying [#285]
-- Fix workingDir permissions issue by creating it within init container [#283]
-- Fix event.json not being copied to /github/workflow in kubernetes-novolume mode [#287]
-- Reduce the amount of data copied to the workflow pod [#293]
-- Overwrite runner file commands [#298]
+- Add WebSocket heartbeat to Kubernetes hook to keep connections alive during long-running job steps, preventing premature disconnections
+
+## Bug Fixes
+
+- Fix WebSocket connection stability issue causing exec sessions to drop mid-job
+- Ensure WebSocket connections are properly closed and cleaned up after each step
+- Fix callback firing order for WebSocket exec responses
+- Increase pod exec timeouts to reduce spurious failures on slow clusters
+- Overwrite `_runner_file_commands` correctly when merging temp directories between runner and pod
+- Fix open handle leaks in Jest tests causing intermittent test failures
 
 ## Misc
 
-- Dependency updates [#276] [#277] [#278] [#279] [#304]
-- Group dependabot updates [#289]
+- Reduce logging verbosity: demote several `core.info` calls to `core.debug` to avoid noisy runner logs
+- Remove extraneous peer dependency entries from package manifests
+- Add `--forceExit` to Jest configuration to ensure clean test teardown
 
 ## SHA-256 Checksums
 

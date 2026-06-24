@@ -56,7 +56,7 @@ describe('Run script step', () => {
     ).rejects.toThrow()
   })
 
-  it('should shold have env variables available', async () => {
+  it('should have env variables available', async () => {
     runScriptStepDefinition.args.entryPoint = 'bash'
 
     runScriptStepDefinition.args.entryPointArgs = [
