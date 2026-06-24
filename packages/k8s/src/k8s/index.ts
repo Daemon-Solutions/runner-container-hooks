@@ -525,7 +525,7 @@ export async function execCpToPod(
         'sh',
         '-c',
         `set -ux; ` +
-          `mkdir -p ${shlex.quote(containerPath)}; ` +
+          `rm -rf ${shlex.quote(containerPath)} && mkdir -p ${shlex.quote(containerPath)}; ` +
           `ls -ld ${shlex.quote(containerPath)}; ` +
           `if ! tar xf - --no-same-owner -C ${shlex.quote(containerPath)}; then ` +
           `  echo 'execCpToPod: failed to extract incoming tar stream into destination dir' >&2; ` +
@@ -703,6 +703,19 @@ export async function execCpToPod(
                     `execCpToPod: ws.close() intercepted on attempt ${attempt + 1}, keeping WebSocket open for status callback`
                   )
                 }
+                // For v4 protocol the server will close the WebSocket when it
+                // detects stdin is no longer being fed. Settle quickly after that
+                // rather than waiting the full EXEC_TIMEOUT_MS (300s).
+                const POST_SERVER_CLOSE_GRACE_MS = 30_000
+                ws.on('close', () => {
+                  core.debug(
+                    `execCpToPod: server closed WebSocket on attempt ${attempt + 1} (v4 protocol); arming ${POST_SERVER_CLOSE_GRACE_MS}ms grace for tar to complete`
+                  )
+                  armTimer(
+                    POST_SERVER_CLOSE_GRACE_MS,
+                    `post-server-close grace period (${POST_SERVER_CLOSE_GRACE_MS}ms) expired after server closed WebSocket on attempt ${attempt + 1}`
+                  )
+                })
               }
               heartbeat.start(ws, settleReject)
             } else {
