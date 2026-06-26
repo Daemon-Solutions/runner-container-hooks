@@ -247,17 +247,17 @@ function generateResponseFile(
   isAlpine: boolean,
   serviceNames?: string[]
 ): void {
-  core.info('[DEBUG] generateResponseFile - Starting')
-  core.info(`[DEBUG] Response file path: ${responseFile}`)
-  core.info(`[DEBUG] Response file directory: ${dirname(responseFile)}`)
+  core.debug('[DEBUG] generateResponseFile - Starting')
+  core.debug(`[DEBUG] Response file path: ${responseFile}`)
+  core.debug(`[DEBUG] Response file directory: ${dirname(responseFile)}`)
 
   const responseDir = path.dirname(responseFile)
   try {
     const dirExists = fs.existsSync(responseDir)
-    core.info(`[DEBUG] Response file directory exists: ${dirExists}`)
+    core.debug(`[DEBUG] Response file directory exists: ${dirExists}`)
     if (dirExists) {
       const stats = fs.statSync(responseDir)
-      core.info(
+      core.debug(
         `[DEBUG] Response file directory permissions: ${JSON.stringify({
           mode: stats.mode.toString(8),
           uid: stats.uid,
@@ -266,11 +266,11 @@ function generateResponseFile(
         })}`
       )
     } else {
-      core.warning(
+      core.debug(
         `[DEBUG] Response file directory does not exist, attempting to create: ${responseDir}`
       )
       fs.mkdirSync(responseDir, { recursive: true, mode: 0o777 })
-      core.info(`[DEBUG] Created directory: ${responseDir}`)
+      core.debug(`[DEBUG] Created directory: ${responseDir}`)
     }
   } catch (err) {
     core.error(
@@ -334,16 +334,16 @@ function generateResponseFile(
       })
   }
 
-  core.info(`[DEBUG] About to write response file`)
-  core.info(`[DEBUG] Response content: ${JSON.stringify(response, null, 2)}`)
+  core.debug(`[DEBUG] About to write response file`)
+  core.debug(`[DEBUG] Response content: ${JSON.stringify(response, null, 2)}`)
 
   try {
     writeToResponseFile(responseFile, JSON.stringify(response))
-    core.info(`[DEBUG] Successfully wrote response file`)
+    core.debug(`[DEBUG] Successfully wrote response file`)
 
     if (fs.existsSync(responseFile)) {
       const fileStats = fs.statSync(responseFile)
-      core.info(
+      core.debug(
         `[DEBUG] Response file created successfully: ${JSON.stringify({
           size: fileStats.size,
           mode: fileStats.mode.toString(8),
