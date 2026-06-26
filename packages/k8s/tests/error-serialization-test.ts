@@ -2,15 +2,6 @@ const mockExec = jest.fn()
 const mockReadNamespacedPod = jest.fn()
 const mockReadNamespacedJob = jest.fn()
 
-// Prevent the source-path validation in execCpToPod from failing before the
-// mocked exec is ever called — the tests pass a synthetic path (/tmp/src).
-jest.mock('fs', () => ({
-  ...jest.requireActual('fs'),
-  existsSync: jest.fn().mockReturnValue(true),
-  statSync: jest.fn().mockReturnValue({ isDirectory: () => true }),
-  readdirSync: jest.fn().mockReturnValue([])
-}))
-
 jest.mock('@kubernetes/client-node', () => {
   return {
     KubeConfig: jest.fn().mockImplementation(() => ({

@@ -552,7 +552,9 @@ export async function execCpToPod(
   core.debug(`[execCpToPod] Target pod: ${podName}`)
   core.debug(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
 
-  // Validate source path exists before attempting the copy
+  // Diagnostic-only: log source path info before attempting the copy.
+  // Do not throw here — if the path is missing the exec will fail and the
+  // retry loop will surface a clear error after 30 attempts.
   try {
     const sourceExists = fs.existsSync(runnerPath)
     core.debug(`[execCpToPod] Source path exists: ${sourceExists}`)
@@ -571,12 +573,10 @@ export async function execCpToPod(
         )
       }
     } else {
-      core.error(`[execCpToPod] Source path does not exist: ${runnerPath}`)
-      throw new Error(`Source path does not exist: ${runnerPath}`)
+      core.warning(`[execCpToPod] Source path does not exist: ${runnerPath}`)
     }
   } catch (err) {
-    core.error(`[execCpToPod] Error checking source path: ${err}`)
-    throw err
+    core.warning(`[execCpToPod] Error checking source path: ${err}`)
   }
 
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
