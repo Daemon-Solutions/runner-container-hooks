@@ -770,18 +770,25 @@ export async function execCpToPod(
           })
       })
 
-      await Promise.race([
-        execPromise,
-        new Promise<void>((_, timeoutReject) =>
-          setTimeout(
-            () =>
-              timeoutReject(
-                new Error(`Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`)
-              ),
-            EXEC_TIMEOUT_MS
-          )
-        )
-      ])
+      let execTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+      try {
+        await Promise.race([
+          execPromise,
+          new Promise<void>((_, timeoutReject) => {
+            execTimeoutHandle = setTimeout(
+              () =>
+                timeoutReject(
+                  new Error(
+                    `Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`
+                  )
+                ),
+              EXEC_TIMEOUT_MS
+            )
+          })
+        ])
+      } finally {
+        if (execTimeoutHandle !== null) clearTimeout(execTimeoutHandle)
+      }
 
       core.debug(
         `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
