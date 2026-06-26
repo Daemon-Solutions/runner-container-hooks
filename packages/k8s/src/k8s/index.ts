@@ -753,11 +753,11 @@ export async function execCpToPod(
           })
           .catch(e => {
             if (resolved) return
-            core.error(`[execCpToPod] Exec threw error: ${e}`)
-            core.error(`[execCpToPod] Error type: ${typeof e}`)
-            core.error(`[execCpToPod] Error message: ${e?.message}`)
-            core.error(`[execCpToPod] Error stack: ${e?.stack}`)
-            core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
+            core.debug(`[execCpToPod] Exec threw error: ${e}`)
+            core.debug(`[execCpToPod] Error type: ${typeof e}`)
+            core.debug(`[execCpToPod] Error message: ${e?.message}`)
+            core.debug(`[execCpToPod] Error stack: ${e?.stack}`)
+            core.debug(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
             if (!callbackFired) {
               resolved = true
               heartbeat.stop()
@@ -789,11 +789,11 @@ export async function execCpToPod(
       break
     } catch (error) {
       heartbeat.stop()
-      core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
-      core.error(`[execCpToPod] Error type: ${typeof error}`)
-      core.error(`[execCpToPod] Error message: ${(error as Error)?.message}`)
-      core.error(`[execCpToPod] Error stack: ${(error as Error)?.stack}`)
-      core.error(`[execCpToPod] Error details: ${JSON.stringify(error)}`)
+      core.debug(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
+      core.debug(`[execCpToPod] Error type: ${typeof error}`)
+      core.debug(`[execCpToPod] Error message: ${(error as Error)?.message}`)
+      core.debug(`[execCpToPod] Error stack: ${(error as Error)?.stack}`)
+      core.debug(`[execCpToPod] Error details: ${JSON.stringify(error)}`)
 
       attempt++
       if (attempt >= 30) {
@@ -984,10 +984,10 @@ export async function execCpFromPod(
           })
           .catch(e => {
             if (resolved) return
-            core.error(`[execCpFromPod] exec.exec threw: ${e}`)
-            core.error(`[execCpFromPod] Error type: ${typeof e}`)
-            core.error(`[execCpFromPod] Error message: ${e?.message}`)
-            core.error(`[execCpFromPod] Error details: ${JSON.stringify(e)}`)
+            core.debug(`[execCpFromPod] exec.exec threw: ${e}`)
+            core.debug(`[execCpFromPod] Error type: ${typeof e}`)
+            core.debug(`[execCpFromPod] Error message: ${e?.message}`)
+            core.debug(`[execCpFromPod] Error details: ${JSON.stringify(e)}`)
             if (!callbackFired) {
               resolved = true
               heartbeat.stop()
