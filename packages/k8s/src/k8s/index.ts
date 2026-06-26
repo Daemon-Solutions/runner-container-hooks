@@ -1,5 +1,6 @@
 import * as core from '@actions/core'
 import * as path from 'path'
+import * as fs from 'fs'
 import { spawn } from 'child_process'
 import * as k8s from '@kubernetes/client-node'
 import tar from 'tar-fs'
@@ -72,11 +73,27 @@ export async function createJobPod(
   registry?: Registry,
   extension?: k8s.V1PodTemplateSpec
 ): Promise<k8s.V1Pod> {
+  core.debug(`[createJobPod] Starting pod creation: ${name}`)
+  core.debug(`[createJobPod] Has jobContainer: ${!!jobContainer}`)
+  core.debug(`[createJobPod] Services count: ${services?.length || 0}`)
+  core.debug(`[createJobPod] Has registry: ${!!registry}`)
+  core.debug(`[createJobPod] Has extension: ${!!extension}`)
+
   const containers: k8s.V1Container[] = []
   if (jobContainer) {
+    core.debug(`[createJobPod] Adding job container: ${jobContainer.name}`)
+    core.debug(
+      `[createJobPod] Job container volumeMounts: ${JSON.stringify(jobContainer.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
+    )
     containers.push(jobContainer)
   }
   if (services?.length) {
+    core.debug(`[createJobPod] Adding ${services.length} service containers`)
+    for (const service of services) {
+      core.debug(
+        `[createJobPod] Service: ${service.name}, volumeMounts: ${JSON.stringify(service.volumeMounts?.map(vm => ({ name: vm.name, mountPath: vm.mountPath })))}`
+      )
+    }
     containers.push(...services)
   }
 
@@ -104,6 +121,8 @@ export async function createJobPod(
   // GITHUB_WORKSPACE is like /__w/repo-name/repo-name
   const githubWorkspace = process.env.GITHUB_WORKSPACE
   const workingDirPath = githubWorkspace?.split('/').slice(-2).join('/') ?? ''
+  core.debug(`[createJobPod] GITHUB_WORKSPACE: ${githubWorkspace}`)
+  core.debug(`[createJobPod] Extracted workingDirPath: ${workingDirPath}`)
 
   const initCommands = [
     'mkdir -p /mnt/externals',
@@ -115,6 +134,8 @@ export async function createJobPod(
   if (workingDirPath) {
     initCommands.push(`mkdir -p /mnt/work/${workingDirPath}`)
   }
+
+  core.debug(`[createJobPod] Init commands: ${initCommands.join(' && ')}`)
 
   appPod.spec.initContainers = [
     {
@@ -146,6 +167,7 @@ export async function createJobPod(
 
   appPod.spec.restartPolicy = 'Never'
 
+  core.debug(`[createJobPod] Creating standard volumes`)
   appPod.spec.volumes = [
     {
       name: EXTERNALS_VOLUME_NAME,
@@ -160,8 +182,12 @@ export async function createJobPod(
       emptyDir: {}
     }
   ]
+  core.debug(
+    `[createJobPod] Initial volumes: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
+  )
 
   if (registry) {
+    core.debug(`[createJobPod] Creating docker registry secret`)
     const secret = await createDockerSecret(registry)
     if (!secret?.metadata?.name) {
       throw new Error(`created secret does not have secret.metadata.name`)
@@ -169,20 +195,68 @@ export async function createJobPod(
     const secretReference = new k8s.V1LocalObjectReference()
     secretReference.name = secret.metadata.name
     appPod.spec.imagePullSecrets = [secretReference]
+    core.debug(`[createJobPod] Added imagePullSecret: ${secret.metadata.name}`)
   }
 
   if (extension?.metadata) {
+    core.debug(`[createJobPod] Merging extension metadata`)
+    core.debug(
+      `[createJobPod] Extension labels: ${JSON.stringify(extension.metadata.labels)}`
+    )
+    core.debug(
+      `[createJobPod] Extension annotations: ${JSON.stringify(extension.metadata.annotations)}`
+    )
     mergeObjectMeta(appPod, extension.metadata)
   }
 
   if (extension?.spec) {
+    core.debug(`[createJobPod] Merging extension spec`)
+    core.debug(
+      `[createJobPod] Extension volumes: ${extension.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+    )
+    core.debug(
+      `[createJobPod] Extension containers: ${extension.spec.containers?.map(c => c.name).join(', ') || 'none'}`
+    )
+    core.debug(
+      `[createJobPod] Volumes BEFORE merge: ${appPod.spec.volumes.map(v => v.name).join(', ')}`
+    )
     mergePodSpecWithOptions(appPod.spec, extension.spec)
+    core.debug(
+      `[createJobPod] Volumes AFTER merge: ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+    )
+    core.debug(
+      `[createJobPod] Total containers after merge: ${appPod.spec.containers.length}`
+    )
   }
 
-  return await k8sApi.createNamespacedPod({
+  core.debug(`[createJobPod] Final pod configuration:`)
+  core.debug(
+    `[createJobPod] - Volumes (${appPod.spec.volumes?.length || 0}): ${appPod.spec.volumes?.map(v => v.name).join(', ') || 'none'}`
+  )
+  core.debug(`[createJobPod] - Containers (${appPod.spec.containers.length}):`)
+  for (const container of appPod.spec.containers) {
+    core.debug(`[createJobPod]   * ${container.name}:`)
+    core.debug(`[createJobPod]     - Image: ${container.image}`)
+    core.debug(
+      `[createJobPod]     - VolumeMounts (${container.volumeMounts?.length || 0}): ${container.volumeMounts?.map(vm => `${vm.name}@${vm.mountPath}`).join(', ') || 'none'}`
+    )
+  }
+  core.debug(
+    `[createJobPod] - InitContainers (${appPod.spec.initContainers?.length || 0})`
+  )
+
+  core.debug(`[createJobPod] Creating pod in namespace: ${namespace()}`)
+  const result = await k8sApi.createNamespacedPod({
     namespace: namespace(),
     body: appPod
   })
+
+  core.debug(
+    `[createJobPod] Pod created successfully: ${result.metadata?.name}`
+  )
+  core.debug(`[createJobPod] Pod UID: ${result.metadata?.uid}`)
+
+  return result
 }
 
 export async function createContainerStepPod(
@@ -254,10 +328,11 @@ export async function execPodStep(
 ): Promise<number> {
   const exec = new k8s.Exec(kc)
   core.debug(
-    `[execPodStep] Starting: cmd="${command[0]}" (${command.length} args), pod=${podName}, container=${containerName}`
+    `[execPodStep] Starting execPodStep with command: ${JSON.stringify(command)}, podName: ${podName}, containerName: ${containerName}`
   )
 
   command = fixArgs(command)
+  core.debug(`[execPodStep] Fixed command: ${JSON.stringify(command)}`)
 
   const DEFAULT_PING_PERIOD_MS = 5000
   const pingPeriodMs = parsePositiveMsEnv(
@@ -471,10 +546,65 @@ export async function execCpToPod(
   runnerPath: string,
   containerPath: string
 ): Promise<void> {
+  core.debug(`[execCpToPod] Starting copy operation`)
+  core.debug(`[execCpToPod] Source (runnerPath): ${runnerPath}`)
+  core.debug(`[execCpToPod] Destination (containerPath): ${containerPath}`)
+  core.debug(`[execCpToPod] Target pod: ${podName}`)
+  core.debug(`[execCpToPod] Target container: ${JOB_CONTAINER_NAME}`)
+
+  // Validate source path exists before attempting the copy
+  try {
+    const sourceExists = fs.existsSync(runnerPath)
+    core.debug(`[execCpToPod] Source path exists: ${sourceExists}`)
+    if (sourceExists) {
+      const sourceStats = fs.statSync(runnerPath)
+      core.debug(
+        `[execCpToPod] Source is directory: ${sourceStats.isDirectory()}`
+      )
+      if (sourceStats.isDirectory()) {
+        const files = fs.readdirSync(runnerPath)
+        core.debug(
+          `[execCpToPod] Source directory contains ${files.length} items`
+        )
+        core.debug(
+          `[execCpToPod] First few items: ${files.slice(0, 5).join(', ')}`
+        )
+      }
+    } else {
+      core.error(`[execCpToPod] Source path does not exist: ${runnerPath}`)
+      throw new Error(`Source path does not exist: ${runnerPath}`)
+    }
+  } catch (err) {
+    core.error(`[execCpToPod] Error checking source path: ${err}`)
+    throw err
+  }
+
   core.debug(`Copying ${runnerPath} to pod ${podName} at ${containerPath}`)
+
+  const DEFAULT_PING_PERIOD_MS = 5000
+  const pingPeriodMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS,
+    DEFAULT_PING_PERIOD_MS
+  )
+  const pongDeadlineMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS,
+    pingPeriodMs * 12 + 1000
+  )
+  // OpenShift HAProxy can kill idle WebSocket connections — default to 10 min
+  // to survive large workspace copies while still detecting truly stale sockets.
+  const EXEC_TIMEOUT_MS = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_EXEC_TIMEOUT_MS,
+    600000
+  )
+  core.debug(
+    `[execCpToPod] Heartbeat config: pingPeriodMs=${pingPeriodMs}, pongDeadlineMs=${pongDeadlineMs}`
+  )
+  core.debug(`[execCpToPod] Using exec timeout: ${EXEC_TIMEOUT_MS}ms`)
 
   let attempt = 0
   while (true) {
+    core.debug(`[execCpToPod] Attempt ${attempt + 1} starting...`)
+    const heartbeat = new WebSocketHeartbeat(pingPeriodMs, pongDeadlineMs)
     try {
       const exec = new k8s.Exec(kc)
       // Use tar to extract with --no-same-owner to avoid ownership issues.
@@ -486,9 +616,17 @@ export async function execCpToPod(
           `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
           `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
       ]
+      core.debug(`[execCpToPod] Command to execute: ${JSON.stringify(command)}`)
+
       const readStream = tar.pack(runnerPath)
       const errStream = new WritableStreamBuffer()
-      await new Promise((resolve, reject) => {
+      core.debug(`[execCpToPod] Executing tar extraction in pod...`)
+
+      const execPromise = new Promise<void>((resolve, reject) => {
+        let callbackFired = false
+        let resolved = false
+        let websocket: HeartbeatWebSocket | null = null
+
         exec
           .exec(
             namespace(),
@@ -500,61 +638,220 @@ export async function execCpToPod(
             readStream,
             false,
             async status => {
-              if (errStream.size()) {
+              if (resolved) return
+              callbackFired = true
+              core.debug(`[execCpToPod] Exec callback invoked`)
+              core.debug(
+                `[execCpToPod] Exec completed with status: ${JSON.stringify(status)}`
+              )
+
+              const errStreamSize = errStream.size()
+              core.debug(`[execCpToPod] Error stream size: ${errStreamSize}`)
+
+              heartbeat.stop()
+
+              const socket = websocket
+              const closeWs = async (): Promise<void> => {
+                if (
+                  socket &&
+                  (socket.readyState === 1 || socket.readyState === 0)
+                ) {
+                  return new Promise<void>(closeResolve => {
+                    const t = setTimeout(() => {
+                      core.warning(
+                        '[execCpToPod] WebSocket close timeout after callback'
+                      )
+                      closeResolve()
+                    }, 5000)
+                    socket.once('close', () => {
+                      clearTimeout(t)
+                      core.debug(
+                        '[execCpToPod] WebSocket closed after callback'
+                      )
+                      closeResolve()
+                    })
+                    socket.close()
+                  })
+                }
+              }
+
+              if (errStreamSize) {
+                const errContent = errStream.getContentsAsString()
+                core.error(`[execCpToPod] Error stream content: ${errContent}`)
+                resolved = true
+                await closeWs()
                 reject(
                   new Error(
-                    `Error from execCpToPod - status: ${status.status}, details: \n ${errStream.getContentsAsString()}`
+                    `Error from execCpToPod - status: ${status.status}, details: \n ${errContent}`
                   )
                 )
+                return
               }
-              resolve(status)
+
+              core.debug(`[execCpToPod] Exec successful, resolving...`)
+              resolved = true
+              await closeWs()
+              resolve()
             }
           )
-          .catch(e => reject(e))
+          .then(ws => {
+            core.debug(`[execCpToPod] exec.exec() promise resolved`)
+            core.debug(`[execCpToPod] WebSocket exists: ${!!ws}`)
+
+            if (ws) {
+              websocket = ws
+              core.debug(`[execCpToPod] WebSocket readyState: ${ws.readyState}`)
+
+              // Start heartbeat — rejects the outer promise if pong deadline
+              // is missed, which forces a retry rather than an infinite hang.
+              // Critical for OpenShift where HAProxy can silently drop idle
+              // WebSocket connections mid-transfer.
+              heartbeat.start(ws, (err: Error) => {
+                if (!resolved) {
+                  resolved = true
+                  reject(err)
+                }
+              })
+
+              const closeHandler = (code: number, reason: string): void => {
+                core.debug(
+                  `[execCpToPod] WebSocket closed: code=${code}, reason=${reason}`
+                )
+                // On OpenShift, the exec WebSocket can close cleanly (code 1000)
+                // without the status callback firing if the command exits quickly.
+                if (
+                  code === 1000 &&
+                  !callbackFired &&
+                  !resolved &&
+                  errStream.size() === 0
+                ) {
+                  core.debug(
+                    `[execCpToPod] WebSocket closed normally without callback, resolving`
+                  )
+                  resolved = true
+                  heartbeat.stop()
+                  resolve()
+                }
+              }
+
+              const errorHandler = (err: Error): void => {
+                core.error(`[execCpToPod] WebSocket error: ${err.message}`)
+                if (!callbackFired && !resolved) {
+                  resolved = true
+                  heartbeat.stop()
+                  reject(err)
+                }
+              }
+
+              ws.on('close', closeHandler)
+              ws.on('error', errorHandler)
+            } else {
+              core.warning(
+                '[execCpToPod] WebSocket is null, heartbeat not started'
+              )
+            }
+          })
+          .catch(e => {
+            if (resolved) return
+            core.error(`[execCpToPod] Exec threw error: ${e}`)
+            core.error(`[execCpToPod] Error type: ${typeof e}`)
+            core.error(`[execCpToPod] Error message: ${e?.message}`)
+            core.error(`[execCpToPod] Error stack: ${e?.stack}`)
+            core.error(`[execCpToPod] Error details: ${JSON.stringify(e)}`)
+            if (!callbackFired) {
+              resolved = true
+              heartbeat.stop()
+              const socket = websocket
+              if (socket && socket.readyState === 1) {
+                socket.close()
+              }
+              reject(e)
+            }
+          })
       })
+
+      await Promise.race([
+        execPromise,
+        new Promise<void>((_, timeoutReject) =>
+          setTimeout(
+            () =>
+              timeoutReject(
+                new Error(`Tar extraction timed out after ${EXEC_TIMEOUT_MS}ms`)
+              ),
+            EXEC_TIMEOUT_MS
+          )
+        )
+      ])
+
+      core.debug(
+        `[execCpToPod] Attempt ${attempt + 1} succeeded, breaking retry loop`
+      )
       break
     } catch (error) {
-      core.debug(`cpToPod: Attempt ${attempt + 1} failed: ${error}`)
+      heartbeat.stop()
+      core.error(`[execCpToPod] Attempt ${attempt + 1} failed: ${error}`)
+      core.error(`[execCpToPod] Error type: ${typeof error}`)
+      core.error(`[execCpToPod] Error message: ${(error as Error)?.message}`)
+      core.error(`[execCpToPod] Error stack: ${(error as Error)?.stack}`)
+      core.error(`[execCpToPod] Error details: ${JSON.stringify(error)}`)
+
       attempt++
       if (attempt >= 30) {
+        core.error(`[execCpToPod] All 30 attempts failed, giving up`)
         throw new Error(
           `cpToPod failed after ${attempt} attempts: ${formatError(error)}`
         )
       }
+      core.debug(`[execCpToPod] Sleeping 1 second before retry...`)
       await sleep(1000)
     }
   }
+
+  core.debug(
+    `[execCpToPod] Copy operation completed, starting hash verification...`
+  )
 
   let attempts = 15
   const delay = 1000
   for (let i = 0; i < attempts; i++) {
     try {
+      core.debug(`[execCpToPod] Hash verification attempt ${i + 1}/${attempts}`)
+
+      core.debug(`[execCpToPod] Calculating local hash for: ${runnerPath}`)
       const want = await localCalculateOutputHashSorted([
         'sh',
         '-c',
         listDirAllCommand(runnerPath)
       ])
+      core.debug(`[execCpToPod] Local hash: ${want}`)
 
+      core.debug(`[execCpToPod] Calculating remote hash for: ${containerPath}`)
       const got = await execCalculateOutputHashSorted(
         podName,
         JOB_CONTAINER_NAME,
         ['sh', '-c', listDirAllCommand(containerPath)]
       )
+      core.debug(`[execCpToPod] Remote hash: ${got}`)
 
       if (got !== want) {
-        core.debug(
-          `The hash of the directory does not match the expected value; want='${want}' got='${got}'`
+        core.warning(
+          `[execCpToPod] Hash mismatch on attempt ${i + 1}: want='${want}' got='${got}'`
         )
         await sleep(delay)
         continue
       }
 
+      core.debug(`[execCpToPod] Hash verification successful!`)
       break
     } catch (error) {
-      core.debug(`Attempt ${i + 1} failed: ${error}`)
+      core.error(
+        `[execCpToPod] Hash verification attempt ${i + 1} failed: ${error}`
+      )
       await sleep(delay)
     }
   }
+
+  core.debug(`[execCpToPod] execCpToPod completed successfully`)
 }
 
 export async function execCpFromPod(
@@ -563,14 +860,29 @@ export async function execCpFromPod(
   parentRunnerPath: string
 ): Promise<void> {
   const targetRunnerPath = `${parentRunnerPath}/${path.basename(containerPath)}`
+  core.debug(`[execCpFromPod] Starting copy from pod`)
   core.debug(
-    `Copying from pod ${podName} ${containerPath} to ${targetRunnerPath}`
+    `[execCpFromPod] Copying from pod ${podName}: ${containerPath} -> ${targetRunnerPath}`
+  )
+
+  const DEFAULT_PING_PERIOD_MS = 5000
+  const pingPeriodMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_PERIOD_MS,
+    DEFAULT_PING_PERIOD_MS
+  )
+  const pongDeadlineMs = parsePositiveMsEnv(
+    process.env.ACTIONS_RUNNER_HEARTBEAT_DEADLINE_MS,
+    pingPeriodMs * 12 + 1000
+  )
+  core.debug(
+    `[execCpFromPod] Heartbeat config: pingPeriodMs=${pingPeriodMs}, pongDeadlineMs=${pongDeadlineMs}`
   )
 
   let attempt = 0
   while (true) {
+    core.debug(`[execCpFromPod] Attempt ${attempt + 1} starting`)
+    const heartbeat = new WebSocketHeartbeat(pingPeriodMs, pongDeadlineMs)
     try {
-      // make temporary directory
       const exec = new k8s.Exec(kc)
       const containerPaths = containerPath.split('/')
       const dirname = containerPaths.pop() as string
@@ -582,10 +894,16 @@ export async function execCpFromPod(
         containerPaths.join('/') || '/',
         dirname
       ]
+      core.debug(`[execCpFromPod] Command: ${JSON.stringify(command)}`)
+
       const writerStream = tar.extract(parentRunnerPath)
       const errStream = new WritableStreamBuffer()
 
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
+        let resolved = false
+        let callbackFired = false
+        let websocket: HeartbeatWebSocket | null = null
+
         exec
           .exec(
             namespace(),
@@ -597,21 +915,90 @@ export async function execCpFromPod(
             null,
             false,
             async status => {
-              if (errStream.size()) {
-                reject(
-                  new Error(
-                    `Error from cpFromPod - details: \n ${errStream.getContentsAsString()}`
-                  )
-                )
+              if (resolved) return
+              callbackFired = true
+              core.debug(
+                `[execCpFromPod] Exec callback: ${JSON.stringify(status)}`
+              )
+
+              heartbeat.stop()
+
+              const socket = websocket
+              const closeWs = async (): Promise<void> => {
+                if (
+                  socket &&
+                  (socket.readyState === 1 || socket.readyState === 0)
+                ) {
+                  return new Promise<void>(closeResolve => {
+                    const t = setTimeout(() => {
+                      core.warning('[execCpFromPod] WebSocket close timeout')
+                      closeResolve()
+                    }, 5000)
+                    socket.once('close', () => {
+                      clearTimeout(t)
+                      core.debug('[execCpFromPod] WebSocket closed cleanly')
+                      closeResolve()
+                    })
+                    socket.close()
+                  })
+                }
               }
-              resolve(status)
+
+              if (errStream.size()) {
+                const errContent = errStream.getContentsAsString()
+                core.error(`[execCpFromPod] Error stream: ${errContent}`)
+                resolved = true
+                await closeWs()
+                reject(
+                  new Error(`Error from cpFromPod - details: \n ${errContent}`)
+                )
+                return
+              }
+
+              core.debug(`[execCpFromPod] Exec successful`)
+              resolved = true
+              await closeWs()
+              resolve()
             }
           )
-          .catch(e => reject(e))
+          .then(ws => {
+            core.debug(`[execCpFromPod] WebSocket received: ${!!ws}`)
+            if (ws) {
+              websocket = ws
+              core.debug(
+                `[execCpFromPod] WebSocket readyState: ${ws.readyState}`
+              )
+              // Heartbeat keeps the connection alive through OpenShift HAProxy
+              // and rejects (triggering retry) if the connection goes stale.
+              heartbeat.start(ws, (err: Error) => {
+                if (!resolved) {
+                  resolved = true
+                  reject(err)
+                }
+              })
+            } else {
+              core.warning(
+                '[execCpFromPod] WebSocket is null, heartbeat not started'
+              )
+            }
+          })
+          .catch(e => {
+            if (resolved) return
+            core.error(`[execCpFromPod] exec.exec threw: ${e}`)
+            core.error(`[execCpFromPod] Error type: ${typeof e}`)
+            core.error(`[execCpFromPod] Error message: ${e?.message}`)
+            core.error(`[execCpFromPod] Error details: ${JSON.stringify(e)}`)
+            if (!callbackFired) {
+              resolved = true
+              heartbeat.stop()
+              reject(e)
+            }
+          })
       })
       break
     } catch (error) {
-      core.debug(`Attempt ${attempt + 1} failed: ${error}`)
+      heartbeat.stop()
+      core.debug(`[execCpFromPod] Attempt ${attempt + 1} failed: ${error}`)
       attempt++
       if (attempt >= 30) {
         throw new Error(

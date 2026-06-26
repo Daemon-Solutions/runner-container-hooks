@@ -1,5 +1,7 @@
 import * as core from '@actions/core'
 import * as k8s from '@kubernetes/client-node'
+import * as fs from 'fs'
+import * as path from 'path'
 import {
   JobContainerInfo,
   ContextPorts,
@@ -40,16 +42,24 @@ export async function prepareJob(
   args: PrepareJobArgs,
   responseFile
 ): Promise<void> {
+  core.debug('[prepareJob] Starting prepareJob hook')
+  core.debug(`[prepareJob] Args: ${JSON.stringify(args)}`)
+
   if (!args.container) {
+    core.error('[prepareJob] No job container provided!')
     throw new Error('Job Container is required.')
   }
 
   await prunePods()
+  core.debug('[prepareJob] Pruned old pods')
 
   const extension = readExtensionFromFile()
 
   let container: k8s.V1Container | undefined = undefined
   if (args.container?.image) {
+    core.debug(
+      `[prepareJob] Creating main container spec for image: ${args.container.image}`
+    )
     container = createContainerSpec(
       args.container,
       JOB_CONTAINER_NAME,
@@ -61,6 +71,10 @@ export async function prepareJob(
   let services: k8s.V1Container[] = []
   let serviceNames: string[] = []
   if (args.services?.length) {
+    core.debug(
+      `[prepareJob] Creating service container specs for: ${args.services.map(s => s.image).join(', ')}`
+    )
+    // Track duplicate image names so each gets a unique container name.
     const occurrences = new Map<string, number>()
     for (const s of args.services) {
       const base = generateContainerName(s.image)
@@ -87,11 +101,13 @@ export async function prepareJob(
   }
 
   if (!container && !services?.length) {
+    core.error('[prepareJob] No containers exist, skipping hook invocation')
     throw new Error('No containers exist, skipping hook invocation')
   }
 
   let createdPod: k8s.V1Pod | undefined = undefined
   try {
+    core.debug('[prepareJob] Creating job pod...')
     createdPod = await createJobPod(
       getJobPodName(),
       container,
@@ -99,42 +115,89 @@ export async function prepareJob(
       args.container.registry,
       extension
     )
+    core.debug(`[prepareJob] Created pod: ${createdPod?.metadata?.name}`)
   } catch (err) {
     await prunePods()
     const message = formatError(err)
-    core.debug(`createPod failed: ${message}`)
+    core.error(`[prepareJob] createPod failed: ${message}`)
     throw new Error(`failed to create job pod: ${message}`)
   }
 
   if (!createdPod?.metadata?.name) {
+    core.error('[prepareJob] created pod should have metadata.name')
     throw new Error('created pod should have metadata.name')
   }
   core.debug(
-    `Job pod created, waiting for it to come online ${createdPod?.metadata?.name}`
+    `[prepareJob] Job pod created, waiting for it to come online: ${createdPod?.metadata?.name}`
   )
 
   const runnerWorkspace = dirname(process.env.RUNNER_WORKSPACE as string)
+  core.debug(`[prepareJob] runnerWorkspace: ${runnerWorkspace}`)
 
   let prepareScript: { containerPath: string; runnerPath: string } | undefined
   if (args.container?.userMountVolumes?.length) {
+    core.debug(
+      `[prepareJob] Preparing job script for userMountVolumes: ${JSON.stringify(args.container.userMountVolumes)}`
+    )
     prepareScript = prepareJobScript(args.container.userMountVolumes || [])
+    core.debug(`[prepareJob] prepareScript: ${JSON.stringify(prepareScript)}`)
   }
 
   try {
+    core.debug('[prepareJob] Waiting for pod to reach RUNNING phase...')
     await waitForPodPhases(
       createdPod.metadata.name,
       new Set([PodPhase.RUNNING]),
       new Set([PodPhase.PENDING]),
       getPrepareJobTimeoutSeconds()
     )
+    core.debug('[prepareJob] Pod is RUNNING')
   } catch (err) {
     await prunePods()
+    core.error(`[prepareJob] pod failed to come online: ${err}`)
     throw new Error(`pod failed to come online with error: ${formatError(err)}`)
   }
 
-  await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
+  core.debug(
+    `[prepareJob] Copying workspace to pod: ${createdPod.metadata.name}`
+  )
+  core.debug(`[DEBUG] About to copy workspace`)
+  core.debug(`[DEBUG] Source: ${runnerWorkspace}`)
+  core.debug(`[DEBUG] Destination: /__w`)
+  core.debug(`[DEBUG] Pod name: ${createdPod.metadata.name}`)
+
+  try {
+    core.debug(`[DEBUG] Starting execCpToPod...`)
+    await execCpToPod(createdPod.metadata.name, runnerWorkspace, '/__w')
+    core.debug(`[DEBUG] Workspace copy completed successfully`)
+  } catch (err) {
+    core.error(`[DEBUG] Workspace copy failed with error`)
+    core.error(`[DEBUG] Error type: ${typeof err}`)
+    core.error(`[DEBUG] Error: ${err}`)
+    core.error(`[DEBUG] Error message: ${(err as Error)?.message}`)
+    core.error(`[DEBUG] Error stack: ${(err as Error)?.stack}`)
+    core.error(`[DEBUG] Full error object: ${JSON.stringify(err, null, 2)}`)
+
+    // Attempt to write an error response so the runner surfaces a useful message
+    try {
+      const errorResponse = {
+        state: { error: 'workspace copy failed', details: String(err) },
+        context: {},
+        isAlpine: false
+      }
+      writeToResponseFile(responseFile, JSON.stringify(errorResponse))
+      core.debug(`[DEBUG] Wrote error response file`)
+    } catch (writeErr) {
+      core.error(`[DEBUG] Failed to write error response: ${writeErr}`)
+    }
+
+    throw err
+  }
 
   if (prepareScript) {
+    core.debug(
+      `[prepareJob] Executing prepare script in pod: ${prepareScript.containerPath}`
+    )
     await execPodStep(
       ['sh', '-e', prepareScript.containerPath],
       createdPod.metadata.name,
@@ -143,6 +206,9 @@ export async function prepareJob(
 
     const promises: Promise<void>[] = []
     for (const vol of args?.container?.userMountVolumes || []) {
+      core.debug(
+        `[prepareJob] Copying user volume to pod: ${vol.sourceVolumePath} -> ${vol.targetVolumePath}`
+      )
       promises.push(
         execCpToPod(
           createdPod.metadata.name,
@@ -152,9 +218,10 @@ export async function prepareJob(
       )
     }
     await Promise.all(promises)
+    core.debug('[prepareJob] All user volumes copied')
   }
 
-  core.debug('Job pod is ready for traffic')
+  core.debug('[prepareJob] Job pod is ready for traffic')
 
   let isAlpine = false
   try {
@@ -164,7 +231,9 @@ export async function prepareJob(
     )
   } catch (err) {
     const message = formatError(err)
-    core.debug(`Failed to determine if the pod is alpine: ${message}`)
+    core.error(
+      `[prepareJob] Failed to determine if the pod is alpine: ${message}`
+    )
     throw new Error(`failed to determine if the pod is alpine: ${message}`)
   }
   core.debug(`Setting isAlpine to ${isAlpine}`)
@@ -178,9 +247,42 @@ function generateResponseFile(
   isAlpine: boolean,
   serviceNames?: string[]
 ): void {
+  core.info('[DEBUG] generateResponseFile - Starting')
+  core.info(`[DEBUG] Response file path: ${responseFile}`)
+  core.info(`[DEBUG] Response file directory: ${dirname(responseFile)}`)
+
+  const responseDir = path.dirname(responseFile)
+  try {
+    const dirExists = fs.existsSync(responseDir)
+    core.info(`[DEBUG] Response file directory exists: ${dirExists}`)
+    if (dirExists) {
+      const stats = fs.statSync(responseDir)
+      core.info(
+        `[DEBUG] Response file directory permissions: ${JSON.stringify({
+          mode: stats.mode.toString(8),
+          uid: stats.uid,
+          gid: stats.gid,
+          isDirectory: stats.isDirectory()
+        })}`
+      )
+    } else {
+      core.warning(
+        `[DEBUG] Response file directory does not exist, attempting to create: ${responseDir}`
+      )
+      fs.mkdirSync(responseDir, { recursive: true, mode: 0o777 })
+      core.info(`[DEBUG] Created directory: ${responseDir}`)
+    }
+  } catch (err) {
+    core.error(
+      `[DEBUG] Error checking/creating response file directory: ${err}`
+    )
+    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+  }
+
   if (!appPod.metadata?.name) {
     throw new Error('app pod must have metadata.name specified')
   }
+
   const response = {
     state: {
       jobPod: appPod.metadata.name
@@ -232,7 +334,33 @@ function generateResponseFile(
       })
   }
 
-  writeToResponseFile(responseFile, JSON.stringify(response))
+  core.info(`[DEBUG] About to write response file`)
+  core.info(`[DEBUG] Response content: ${JSON.stringify(response, null, 2)}`)
+
+  try {
+    writeToResponseFile(responseFile, JSON.stringify(response))
+    core.info(`[DEBUG] Successfully wrote response file`)
+
+    if (fs.existsSync(responseFile)) {
+      const fileStats = fs.statSync(responseFile)
+      core.info(
+        `[DEBUG] Response file created successfully: ${JSON.stringify({
+          size: fileStats.size,
+          mode: fileStats.mode.toString(8),
+          uid: fileStats.uid,
+          gid: fileStats.gid
+        })}`
+      )
+    } else {
+      core.error(
+        `[DEBUG] Response file does not exist after write: ${responseFile}`
+      )
+    }
+  } catch (err) {
+    core.error(`[DEBUG] Error writing response file: ${err}`)
+    core.error(`[DEBUG] Error details: ${JSON.stringify(err)}`)
+    throw err
+  }
 }
 
 export function createContainerSpec(
