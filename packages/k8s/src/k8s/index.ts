@@ -114,7 +114,9 @@ export async function createJobPod(
   appPod.spec = new k8s.V1PodSpec()
   appPod.spec.containers = containers
   appPod.spec.securityContext = {
-    fsGroup: 1001
+    fsGroup: 1001,
+    runAsUser: 1001,
+    runAsGroup: 1001
   }
 
   // Extract working directory from GITHUB_WORKSPACE
@@ -280,6 +282,11 @@ export async function createContainerStepPod(
 
   appPod.spec = new k8s.V1PodSpec()
   appPod.spec.containers = [container]
+  appPod.spec.securityContext = {
+    fsGroup: 1001,
+    runAsUser: 1001,
+    runAsGroup: 1001
+  }
 
   appPod.spec.restartPolicy = 'Never'
 
@@ -608,13 +615,21 @@ export async function execCpToPod(
     try {
       const exec = new k8s.Exec(kc)
       // Use tar to extract with --no-same-owner to avoid ownership issues.
-      // Then use find to fix permissions. The -m flag helps but we also need to fix permissions after.
+      // If the exec session is root (e.g. cluster admission assigned UID 0
+      // instead of the expected non-root UID), chown to 1001 so later steps
+      // running as 1001 can still write; otherwise fall back to a
+      // world-writable chmod since we can't chown to an arbitrary UID as a
+      // non-root user.
       const command = [
         'sh',
         '-c',
         `tar xf - --no-same-owner -C ${shlex.quote(containerPath)} 2>/dev/null; ` +
-          `find ${shlex.quote(containerPath)} -type f -exec chmod u+rw {} \\; 2>/dev/null; ` +
-          `find ${shlex.quote(containerPath)} -type d -exec chmod u+rwx {} \\; 2>/dev/null`
+          `if [ "$(id -u)" = "0" ]; then ` +
+          `chown -R 1001:1001 ${shlex.quote(containerPath)} 2>/dev/null; ` +
+          `else ` +
+          `find ${shlex.quote(containerPath)} -type f -exec chmod go+rw {} \\; 2>/dev/null; ` +
+          `find ${shlex.quote(containerPath)} -type d -exec chmod go+rwx {} \\; 2>/dev/null; ` +
+          `fi`
       ]
       core.debug(`[execCpToPod] Command to execute: ${JSON.stringify(command)}`)
 
