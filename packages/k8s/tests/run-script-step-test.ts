@@ -43,10 +43,10 @@ describe('Run script step', () => {
   // then change the name of the file to 'run-script-step-test.ts' and do
   // npm run test run-script-step
 
-  it('should not throw an exception', async () => {
+  it('should resolve with the entrypoint exit code', async () => {
     await expect(
       runScriptStep(runScriptStepDefinition.args, prepareJobOutputData.state)
-    ).resolves.not.toThrow()
+    ).resolves.toBe(0)
   })
 
   it('should fail if the working directory does not exist', async () => {

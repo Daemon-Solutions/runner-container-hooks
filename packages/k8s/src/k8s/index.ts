@@ -359,6 +359,7 @@ export async function execPodStep(
   return new Promise<number>((resolve, reject) => {
     core.debug('[execPodStep] About to call exec.exec')
     let ws: HeartbeatWebSocket | null = null
+    let statusReceived = false
 
     exec
       .exec(
@@ -371,6 +372,7 @@ export async function execPodStep(
         stdin ?? null,
         false /* tty */,
         async resp => {
+          statusReceived = true
           core.debug(
             `[execPodStep] execPodStep response: ${JSON.stringify(resp)}`
           )
@@ -405,7 +407,11 @@ export async function execPodStep(
           if (resp.status === 'Success') {
             core.debug(`[execPodStep] Success, code: ${resp.code}`)
             await closeWebSocket()
-            resolve(resp.code || 0)
+            // The kubelet's v4 exec protocol sends `{"status":"Success"}` with
+            // no `code` field (metav1.Status.Code is omitempty) for a zero
+            // exit; non-zero exits arrive as a Failure frame. A code-less
+            // Success therefore means exit 0 and must not be rejected.
+            resolve(typeof resp.code === 'number' ? resp.code : 0)
           } else {
             core.debug(
               `[execPodStep] Failure: ${JSON.stringify({ message: resp?.message, details: resp?.details })}`
@@ -420,6 +426,16 @@ export async function execPodStep(
         ws = websocket
         if (ws) {
           heartbeat.start(ws, reject)
+          ws.on('close', () => {
+            if (!statusReceived) {
+              heartbeat.stop()
+              reject(
+                new Error(
+                  'exec stream closed before the command reported an exit status'
+                )
+              )
+            }
+          })
         } else {
           core.warning('[Heartbeat] WebSocket is null, heartbeat not started')
         }

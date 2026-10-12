@@ -1,3 +1,10 @@
+# v0.10.0 Release Notes
+
+## Bug Fixes
+
+- Fail Kubernetes exec steps when the exec WebSocket closes before a status frame arrives, preventing false-positive green job completions (fixes #396)
+- Propagate the script-step exit code through `run_script_step` and the Kubernetes hook entrypoint
+
 # v0.9.0 Release Notes
 
 ## Features
