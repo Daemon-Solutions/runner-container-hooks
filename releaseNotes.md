@@ -1,3 +1,11 @@
+# v0.11.0 Release Notes
+
+## Features
+
+- Add opt-in recovery of Kubernetes script-step exit codes when an exec stream drops before reporting status. Enable it with `ACTIONS_RUNNER_EXEC_RESUME_ENABLED=1` (or `true`); it is off by default.
+- Configure recovery bounds with `ACTIONS_RUNNER_EXEC_RESUME_MAX_ATTEMPTS` (default 30), `ACTIONS_RUNNER_EXEC_RESUME_POLL_INTERVAL_MS` (default 1000), and `ACTIONS_RUNNER_EXEC_RESUME_DEADLINE_MS` (default 30000).
+- Recovery uses a per-invocation exit-code sentinel and never re-runs the user script. Output written after the stream drops cannot be recovered.
+
 # v0.10.0 Release Notes
 
 ## Bug Fixes

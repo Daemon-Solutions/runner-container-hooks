@@ -66,16 +66,16 @@ export class WebSocketHeartbeat {
           `[Heartbeat] No pong received in ${this.pongDeadlineMs}ms, closing stale connection`
         )
         this.stop()
-        try {
-          ws.close()
-        } catch {
-          // ignore errors closing an already-closing socket
-        }
         reject(
           new Error(
             `WebSocket heartbeat timeout: no pong within ${this.pongDeadlineMs}ms`
           )
         )
+        try {
+          ws.close()
+        } catch {
+          // ignore errors closing an already-closing socket
+        }
       }, this.pongDeadlineMs)
     }
 

@@ -331,6 +331,75 @@ export async function execPodStep(
   command: string[],
   podName: string,
   containerName: string,
+  stdin?: stream.Readable,
+  options?: ExecPodStepOptions
+): Promise<number> {
+  try {
+    return await execPodStepOnce(command, podName, containerName, stdin)
+  } catch (err) {
+    if (
+      err instanceof ExecStreamClosedError &&
+      options?.resume &&
+      execResumeEnabled()
+    ) {
+      return await waitForExitSentinel(
+        podName,
+        containerName,
+        options.resume.sentinelPath,
+        options.resume.config ?? execResumeConfigFromEnv()
+      )
+    }
+    throw err
+  }
+}
+
+export interface ExecResumeConfig {
+  maxAttempts: number
+  pollIntervalMs: number
+  deadlineMs: number
+}
+
+export interface ExecPodStepOptions {
+  resume?: {
+    sentinelPath: string
+    config?: ExecResumeConfig
+  }
+}
+
+class ExecStreamClosedError extends Error {
+  constructor() {
+    super('exec stream closed before the command reported an exit status')
+    this.name = 'ExecStreamClosedError'
+    Object.setPrototypeOf(this, ExecStreamClosedError.prototype)
+  }
+}
+
+function execResumeEnabled(): boolean {
+  const value = process.env.ACTIONS_RUNNER_EXEC_RESUME_ENABLED?.toLowerCase()
+  return value === '1' || value === 'true'
+}
+
+function execResumeConfigFromEnv(): ExecResumeConfig {
+  return {
+    maxAttempts: parsePositiveMsEnv(
+      process.env.ACTIONS_RUNNER_EXEC_RESUME_MAX_ATTEMPTS,
+      30
+    ),
+    pollIntervalMs: parsePositiveMsEnv(
+      process.env.ACTIONS_RUNNER_EXEC_RESUME_POLL_INTERVAL_MS,
+      1000
+    ),
+    deadlineMs: parsePositiveMsEnv(
+      process.env.ACTIONS_RUNNER_EXEC_RESUME_DEADLINE_MS,
+      30000
+    )
+  }
+}
+
+async function execPodStepOnce(
+  command: string[],
+  podName: string,
+  containerName: string,
   stdin?: stream.Readable
 ): Promise<number> {
   const exec = new k8s.Exec(kc)
@@ -429,11 +498,7 @@ export async function execPodStep(
           ws.on('close', () => {
             if (!statusReceived) {
               heartbeat.stop()
-              reject(
-                new Error(
-                  'exec stream closed before the command reported an exit status'
-                )
-              )
+              reject(new ExecStreamClosedError())
             }
           })
         } else {
@@ -465,6 +530,133 @@ export async function execPodStep(
 
         reject(e)
       })
+  })
+}
+
+async function waitForExitSentinel(
+  podName: string,
+  containerName: string,
+  sentinelPath: string,
+  config: ExecResumeConfig
+): Promise<number> {
+  const startedAt = Date.now()
+  let attempts = 0
+  core.warning(
+    `[execPodStep] Exec stream closed before the step reported an exit status; waiting up to ${config.deadlineMs}ms for exit-code sentinel ${sentinelPath}. Step output written after the drop is not captured.`
+  )
+
+  while (
+    attempts < config.maxAttempts &&
+    Date.now() - startedAt < config.deadlineMs
+  ) {
+    attempts++
+    const remainingMs = config.deadlineMs - (Date.now() - startedAt)
+    try {
+      const value = await readExitSentinel(
+        podName,
+        containerName,
+        sentinelPath,
+        remainingMs
+      )
+      if (/^\d+$/.test(value)) {
+        const code = Number.parseInt(value, 10)
+        if (code >= 0 && code <= 255) {
+          core.warning(
+            `[execPodStep] Recovered exit code ${code} from sentinel after ${attempts} attempt(s)`
+          )
+          return code
+        }
+      }
+      core.debug(`[execPodStep] Sentinel contained invalid exit code: ${value}`)
+    } catch (err) {
+      core.debug(
+        `[execPodStep] Exit-code sentinel attempt ${attempts} failed: ${formatError(err)}`
+      )
+    }
+
+    const elapsedMs = Date.now() - startedAt
+    if (attempts < config.maxAttempts && elapsedMs < config.deadlineMs) {
+      await sleep(
+        Math.min(config.pollIntervalMs, config.deadlineMs - elapsedMs)
+      )
+    }
+  }
+
+  throw new Error(
+    `exec stream closed and no exit-code sentinel appeared within ${config.deadlineMs}ms (step result indeterminate)`
+  )
+}
+
+async function readExitSentinel(
+  podName: string,
+  containerName: string,
+  sentinelPath: string,
+  timeoutMs: number
+): Promise<string> {
+  const output: Buffer[] = []
+  const outputWriter = new stream.Writable({
+    write(chunk, _encoding, callback) {
+      output.push(Buffer.from(chunk))
+      callback()
+    }
+  })
+  const exec = new k8s.Exec(kc)
+
+  return await new Promise<string>((resolve, reject) => {
+    let settled = false
+    let waiterSocket: HeartbeatWebSocket | null = null
+    const settle = (callback: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback()
+    }
+    const timeout = setTimeout(
+      () => {
+        settle(() => reject(new Error('sentinel waiter timed out')))
+        try {
+          waiterSocket?.close()
+        } catch {
+          // ignore errors closing an already-closing socket
+        }
+      },
+      Math.max(1, timeoutMs)
+    )
+
+    exec
+      .exec(
+        namespace(),
+        podName,
+        containerName,
+        [
+          'sh',
+          '-c',
+          `test -f ${shlex.quote(sentinelPath)} && cat ${shlex.quote(sentinelPath)}`
+        ],
+        outputWriter,
+        process.stderr,
+        null,
+        false,
+        resp => {
+          if (resp.status === 'Success') {
+            settle(() => resolve(Buffer.concat(output).toString('utf8').trim()))
+          } else {
+            settle(() =>
+              reject(new Error(resp?.message || 'sentinel not ready'))
+            )
+          }
+        }
+      )
+      .then(websocket => {
+        waiterSocket = websocket
+        // A waiter stream that drops before reporting status must fail this
+        // attempt promptly so the loop can retry, rather than hanging until
+        // the overall deadline.
+        websocket?.on('close', () =>
+          settle(() => reject(new ExecStreamClosedError()))
+        )
+      })
+      .catch(err => settle(() => reject(err)))
   })
 }
 

@@ -19,7 +19,7 @@ export async function runScriptStep(
 ): Promise<number> {
   // Write the entrypoint first. This will be later coppied to the workflow pod
   const { entryPoint, entryPointArgs, environmentVariables } = args
-  const { containerPath, runnerPath } = writeRunScript(
+  const { containerPath, runnerPath, sentinelPath } = writeRunScript(
     args.workingDirectory,
     entryPoint,
     entryPointArgs,
@@ -84,7 +84,9 @@ export async function runScriptStep(
     exitCode = await execPodStep(
       [args.entryPoint, ...args.entryPointArgs],
       state.jobPod,
-      JOB_CONTAINER_NAME
+      JOB_CONTAINER_NAME,
+      undefined,
+      { resume: { sentinelPath } }
     )
   } catch (err) {
     const message = formatError(err)

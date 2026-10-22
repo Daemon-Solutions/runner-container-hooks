@@ -60,7 +60,7 @@ export function writeRunScript(
   entryPointArgs?: string[],
   prependPath?: string[],
   environmentVariables?: { [key: string]: string }
-): { containerPath: string; runnerPath: string } {
+): { containerPath: string; runnerPath: string; sentinelPath: string } {
   let exportPath = ''
   if (prependPath?.length) {
     // TODO: remove compatibility with typeof prependPath === 'string' as we bump to next major version, the hooks will lose PrependPath compat with runners 2.293.0 and older
@@ -71,21 +71,35 @@ export function writeRunScript(
 
   let environmentPrefix = scriptEnv(environmentVariables)
 
+  const filename = `${uuidv4()}.sh`
+  const sentinelPath = `/__w/_temp/${filename}.exit`
+  const sentinelTempPath = `${sentinelPath}.tmp`
+  // The user command must not run under `exec` so the wrapper can record its
+  // exit code in a per-invocation sentinel (temp file + rename, so a reader
+  // never sees partial content). A failed sentinel write only forfeits
+  // recovery; it must never mask the user's real exit code.
   const content = `#!/bin/sh -l
 set -e
 rm "$0" # remove script after running
 ${exportPath}
-cd ${workingDirectory} && \
-exec ${environmentPrefix} ${entryPoint} ${
+cd ${workingDirectory}
+set +e
+${environmentPrefix} ${entryPoint} ${
     entryPointArgs?.length ? entryPointArgs.join(' ') : ''
   }
+exit_code=$?
+if ! { printf '%s\\n' "$exit_code" > ${shlex.quote(sentinelTempPath)} && mv ${shlex.quote(sentinelTempPath)} ${shlex.quote(sentinelPath)}; }; then
+  rm -f ${shlex.quote(sentinelTempPath)} || :
+  echo "warning: could not record exit-code sentinel ${sentinelPath}" >&2 || :
+fi
+exit "$exit_code"
 `
-  const filename = `${uuidv4()}.sh`
   const entryPointPath = `${process.env.RUNNER_TEMP}/${filename}`
   fs.writeFileSync(entryPointPath, content)
   return {
     containerPath: `/__w/_temp/${filename}`,
-    runnerPath: entryPointPath
+    runnerPath: entryPointPath,
+    sentinelPath
   }
 }
 
